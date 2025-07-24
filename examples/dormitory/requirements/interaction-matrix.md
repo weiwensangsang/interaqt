@@ -1,220 +1,123 @@
-# 宿舍管理系统交互矩阵
+# Interaction Matrix - Dormitory Management System
 
-## 交互总览
+## Overview
+This document maps all interactions to their corresponding permissions, business rules, and test cases to ensure complete coverage.
 
-| 交互名称 | 描述 | 主要执行者 | 权限要求 | 业务规则 | 测试用例 |
-|---------|------|----------|---------|---------|---------|
-| CreateDormitory | 创建宿舍 | Admin | admin角色 | capacity 4-6 | TC001, TC101, TC201 |
-| AssignUserToDormitory | 分配用户到宿舍 | Admin | admin角色 | 床位容量限制、用户唯一性 | TC002, TC202, TC203, TC204 |
-| PromoteToDormHead | 提升为宿舍长 | Admin | admin角色 | 用户已分配宿舍 | TC003 |
-| RecordViolation | 记录违规行为 | DormHead | dormHead角色 | 同宿舍用户 | TC004, TC102, TC206 |
-| RequestKickout | 申请踢出用户 | DormHead | dormHead角色 | 分数<30，无pending申请 | TC005, TC205, TC207 |
-| ProcessKickoutRequest | 处理踢出申请 | Admin | admin角色 | 申请必须pending状态 | TC006, TC007, TC103 |
+## Interaction Matrix
 
-## 详细交互分析
+| Interaction | Description | Allowed Roles | Business Rules | Test Cases |
+|-------------|-------------|---------------|----------------|------------|
+| **CreateDormitory** | Create new dormitory with beds | Admin only | - Capacity must be 4-6<br>- Auto-create beds 1 to capacity | TC001, TC101, TC201 |
+| **AssignDormHead** | Assign user as dormitory head | Admin only | - Target user must exist<br>- User's role changes to 'dormHead' | TC002, TC102 |
+| **RemoveDormHead** | Remove dormitory head assignment | Admin only | - User must be current dormHead<br>- Role reverts to 'student' | TC009 |
+| **AssignUserToBed** | Assign student to specific bed | Admin only | - Bed must be available<br>- User cannot already have a bed<br>- Creates user-bed and user-dormitory relations | TC003, TC202, TC203 |
+| **RemoveUserFromBed** | Remove student from bed | Admin only | - User must have bed assignment<br>- Bed becomes available after removal | TC008 |
+| **RecordPointDeduction** | Deduct points for violations | DormHead (own dorm only) | - Can only deduct from residents<br>- Points must be positive<br>- User points cannot go below 0 | TC004, TC103, TC104, TC205, TC207 |
+| **SubmitKickOutApplication** | Apply to kick out user | DormHead (own dorm only) | - Target must be resident of managed dorm<br>- Application starts as 'pending' | TC005, TC204 |
+| **ProcessKickOutApplication** | Approve/reject kick-out | Admin only | - Application must be 'pending'<br>- If approved: user status→'kickedOut', bed→available<br>- If rejected: no changes | TC006, TC007, TC105, TC206 |
 
-### 1. CreateDormitory
-**执行者**: Admin  
-**权限控制**: 
-- ✅ 必须是admin角色用户
-- ❌ dormHead和student角色禁止执行
+## Permission Control Details
 
-**业务规则**:
-- 宿舍容量必须在4-6之间
-- 宿舍名称不能为空
-- 宿舍名称应该唯一（可选规则）
+### Role-Based Access Control
+1. **Admin Role**:
+   - Full system access
+   - Can manage dormitories, assignments, and applications
+   - Cannot record point deductions (domain of dorm heads)
 
-**输入验证**:
-- name: 非空字符串
-- capacity: 4-6之间的整数
+2. **DormHead Role**:
+   - Manage assigned dormitory only
+   - Record point deductions for residents
+   - Submit kick-out applications for residents
+   - Cannot access other dormitories' data
 
-**相关测试用例**:
-- TC001: 正常创建宿舍
-- TC101: 非管理员权限测试
-- TC201: 容量限制测试
+3. **Student Role**:
+   - View own information only
+   - No write permissions
+   - Cannot perform any management actions
 
----
+### Scope-Based Permissions
+1. **Dormitory Scope**:
+   - DormHeads can only act on their managed dormitory
+   - Students can only view their assigned dormitory
 
-### 2. AssignUserToDormitory  
-**执行者**: Admin  
-**权限控制**:
-- ✅ 必须是admin角色用户
-- ❌ 其他角色禁止执行
+2. **User Scope**:
+   - Point deductions only for users in same dormitory
+   - Kick-out applications only for users in same dormitory
 
-**业务规则**:
-- 目标用户不能已经被分配到任何宿舍
-- 目标床位不能已被占用
-- 宿舍不能超出容量限制
-- 床位号必须在1到宿舍容量范围内
+## Business Rule Validations
 
-**输入验证**:
-- userId: 有效的用户ID
-- dormitoryId: 有效的宿舍ID
-- bedNumber: 1到capacity范围内的整数
+### Data Integrity Rules
+1. **Unique Assignments**:
+   - One user → one bed maximum
+   - One bed → one user maximum
+   - One user → one dormitory (through bed)
 
-**相关测试用例**:
-- TC002: 正常分配用户
-- TC202: 重复床位分配测试
-- TC203: 超出容量测试
-- TC204: 用户重复分配测试
+2. **Capacity Constraints**:
+   - Dormitory: 4-6 beds only
+   - Cannot exceed dormitory capacity
+   - Bed numbers: 1 to capacity
 
----
+3. **State Consistency**:
+   - Bed status syncs with occupancy
+   - User status reflects kick-out state
+   - Application status prevents double-processing
 
-### 3. PromoteToDormHead
-**执行者**: Admin  
-**权限控制**:
-- ✅ 必须是admin角色用户
-- ❌ 其他角色禁止执行
+### Business Logic Rules
+1. **Point System**:
+   - Initial points: 100
+   - Minimum points: 0 (no negative)
+   - Only positive deductions allowed
 
-**业务规则**:
-- 目标用户必须已被分配到宿舍
-- 目标用户当前角色不能是admin
-- 每个宿舍只能有一个宿舍长（可选规则）
+2. **Kick-Out Process**:
+   - Only for low-point users (typically < 30)
+   - Requires dorm head application
+   - Requires admin approval
+   - Automatically frees bed on approval
 
-**输入验证**:
-- userId: 有效的用户ID，且用户已分配宿舍
+3. **Assignment Rules**:
+   - Must assign to available bed only
+   - Cannot reassign without removal
+   - Dorm head must be dormitory resident (future enhancement)
 
-**相关测试用例**:
-- TC003: 正常提升为宿舍长
+## Test Coverage Analysis
 
----
+### Core Functionality Coverage
+- ✓ All CRUD operations tested
+- ✓ All entity relationships tested
+- ✓ All computed properties tested
+- ✓ All state transitions tested
 
-### 4. RecordViolation
-**执行者**: DormHead  
-**权限控制**:
-- ✅ 必须是dormHead角色用户
-- ❌ admin和student角色有不同的访问控制需求
+### Permission Coverage
+- ✓ Admin-only operations tested
+- ✓ DormHead-only operations tested
+- ✓ Cross-dormitory restrictions tested
+- ✓ Student restrictions tested
 
-**业务规则**:
-- 宿舍长只能记录同宿舍学生的违规
-- 目标用户必须是student角色
-- 扣分数量必须为正数
-- 用户分数不能低于0（系统保护）
+### Business Rule Coverage
+- ✓ Capacity limits tested
+- ✓ Assignment uniqueness tested
+- ✓ Point system constraints tested
+- ✓ State transition rules tested
+- ✓ Data validation tested
 
-**输入验证**:
-- targetUserId: 有效的用户ID
-- violationType: 非空字符串
-- description: 可选的描述信息
-- scoreDeduction: 正整数
+## Implementation Notes
 
-**相关测试用例**:
-- TC004: 正常记录违规
-- TC102: 非宿舍长权限测试
-- TC206: 跨宿舍违规记录测试
+### Stage 1 - Core Business Logic
+Focus on making all basic operations work:
+- Entity creation and relationships
+- Basic CRUD without restrictions
+- Computed properties functioning
+- State transitions working
 
----
+### Stage 2 - Permissions & Business Rules
+Add restrictions after core logic works:
+- Role-based access control
+- Scope-based permissions
+- Business rule validations
+- Error handling for violations
 
-### 5. RequestKickout
-**执行者**: DormHead  
-**权限控制**:
-- ✅ 必须是dormHead角色用户
-- ❌ 其他角色禁止执行
-
-**业务规则**:
-- 宿舍长只能申请踢出同宿舍学生
-- 目标用户分数必须低于30分
-- 目标用户不能有pending状态的踢出申请
-- 目标用户必须是student角色
-
-**输入验证**:
-- targetUserId: 有效的用户ID
-- reason: 非空的踢出理由
-
-**相关测试用例**:
-- TC005: 正常申请踢出
-- TC205: 分数不足测试
-- TC207: 重复申请测试
-
----
-
-### 6. ProcessKickoutRequest
-**执行者**: Admin  
-**权限控制**:
-- ✅ 必须是admin角色用户
-- ❌ 其他角色禁止执行
-
-**业务规则**:
-- 申请必须处于pending状态
-- 决定必须是'approved'或'rejected'
-- 如果批准，自动移除用户的宿舍分配
-- 处理后申请状态不可再次更改
-
-**输入验证**:
-- requestId: 有效的踢出申请ID
-- decision: 'approved' | 'rejected'
-
-**相关测试用例**:
-- TC006: 批准踢出申请
-- TC007: 拒绝踢出申请
-- TC103: 非管理员权限测试
-
-## 角色权限矩阵
-
-| 交互 / 角色 | Admin | DormHead | Student |
-|------------|-------|----------|---------|
-| CreateDormitory | ✅ | ❌ | ❌ |
-| AssignUserToDormitory | ✅ | ❌ | ❌ |
-| PromoteToDormHead | ✅ | ❌ | ❌ |
-| RecordViolation | ✅* | ✅ | ❌ |
-| RequestKickout | ❌** | ✅ | ❌ |
-| ProcessKickoutRequest | ✅ | ❌ | ❌ |
-
-**注释**:
-- ✅ = 有权限执行
-- ❌ = 无权限执行  
-- * = Admin可以记录任何违规，不受同宿舍限制
-- ** = Admin不需要申请踢出，可以直接调整用户分配
-
-## 数据完整性要求
-
-### 1. 用户角色一致性
-- 每个用户必须有明确的角色（admin/dormHead/student）
-- 宿舍长必须被分配到宿舍
-- 角色变更必须保持数据一致性
-
-### 2. 宿舍分配一致性
-- 每个用户最多只能被分配到一个宿舍
-- 宿舍入住人数必须与实际分配记录一致
-- 床位编号不能重复
-
-### 3. 违规记录一致性
-- 违规记录必须关联到有效用户和宿舍
-- 用户分数必须与违规记录的扣分累计一致
-- 违规记录不可删除或修改（审计要求）
-
-### 4. 踢出申请一致性
-- 申请状态转换必须按规则进行（pending -> approved/rejected）
-- 批准的踢出申请必须自动移除宿舍分配
-- 申请记录必须保留完整的审计轨迹
-
-## 并发控制考虑
-
-### 1. 宿舍分配并发
-- 多个用户同时分配到同一床位的冲突处理
-- 宿舍容量检查的原子性操作
-
-### 2. 分数更新并发
-- 多个违规记录同时更新用户分数的一致性
-- 分数更新与踢出申请检查的同步
-
-### 3. 踢出申请处理并发
-- 防止对同一申请的重复处理
-- 申请处理与用户分配变更的原子性
-
-## 错误处理策略
-
-### 1. 权限错误
-- 返回统一的权限不足错误信息
-- 记录未授权访问日志
-
-### 2. 业务规则违反
-- 提供清晰的错误描述
-- 指导用户正确操作方式
-
-### 3. 数据一致性错误
-- 回滚不完整的操作
-- 记录数据不一致性日志
-
-### 4. 系统错误
-- 优雅降级处理
-- 保护敏感数据不泄露
+### Critical Success Factors
+1. **Proper Role Assignment**: Even in Stage 1, create users with correct roles
+2. **Valid Test Data**: Use data that will pass Stage 2 validations
+3. **Complete Relations**: Ensure all entity relationships are properly established
+4. **Computation Accuracy**: Verify all computed values update correctly 
