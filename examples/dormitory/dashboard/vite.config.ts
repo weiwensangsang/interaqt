@@ -12,10 +12,9 @@ export default defineConfig({
     },
     resolve: {
         alias: {
-            'interaqt': path.resolve(__dirname, '../../../src'),
-            '@runtime': path.resolve(__dirname, '../../../src/runtime'),
-            '@shared': path.resolve(__dirname, '../../../src/shared'),
-            '@storage': path.resolve(__dirname, '../../../src/storage'),
+            '@runtime': path.resolve(__dirname, './node_modules/interaqt/dist/runtime'),
+            '@shared': path.resolve(__dirname, './node_modules/interaqt/dist/shared'),
+            '@storage': path.resolve(__dirname, './node_modules/interaqt/dist/storage'),
             'async_hooks': path.resolve(__dirname, './mocks/async_hooks.js'),
             'util': path.resolve(__dirname, './mocks/util.js'),
             'fs': path.resolve(__dirname, './mocks/fs.js'),
@@ -28,6 +27,7 @@ export default defineConfig({
         }
     },
     optimizeDeps: {
+        include: ['interaqt'],
         exclude: ['async_hooks', 'util', 'fs', 'better-sqlite3', '@electric-sql/pglite', 'pg', 'mysql2', 'mysql2/promise', 'fastify']
     }
 });

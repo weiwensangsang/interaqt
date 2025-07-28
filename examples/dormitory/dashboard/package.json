@@ -16,6 +16,7 @@
     "axii": "^3.7.3",
     "axii-ui": "^2.1.0",
     "axii-ui-theme-inc": "^4.1.1",
-    "router0": "^2.0.2"
+    "router0": "^2.0.2",
+    "interaqt": "^0.1.0"
   }
 }
