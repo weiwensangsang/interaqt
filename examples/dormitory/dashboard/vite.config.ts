@@ -4,7 +4,7 @@ import path from 'path';
 export default defineConfig({
     server: {
         host: true,
-        allowedHosts: 'all'
+        allowedHosts: true
     },
     esbuild: {
         jsxFactory: 'createElement',
