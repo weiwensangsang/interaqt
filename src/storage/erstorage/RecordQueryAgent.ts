@@ -2,12 +2,13 @@ import { EntityIdRef, Database, RecordMutationEvent } from "@runtime";
 import { BoolExp } from "@shared";
 import { EntityToTableMap } from "./EntityToTableMap.js";
 import { assert, setByPath } from "../utils.js";
-import { } from './EntityQueryHandle.js';
 import { FieldMatchAtom, MatchAtom, MatchExp, MatchExpressionData } from "./MatchExp.js";
 import { AttributeQuery, AttributeQueryData, AttributeQueryDataRecordItem } from "./AttributeQuery.js";
 import { LINK_SYMBOL, RecordQuery, RecordQueryTree } from "./RecordQuery.js";
 import { NewRecordData, RawEntityData } from "./NewRecordData.js";
 import { Modifier } from "./Modifier.js";
+
+import { FilteredEntityManager } from "./FilteredEntityManager.js";
 
 
 export type JoinTables = {
@@ -16,6 +17,7 @@ export type JoinTables = {
     joinIdField: [string, string]
     joinTarget: [string, string]
 }[]
+
 
 
 
@@ -92,8 +94,33 @@ export type PlaceholderGen = (name?: string) => string
 
 export class RecordQueryAgent {
     getPlaceholder: () => PlaceholderGen
+    private filteredEntityManager: FilteredEntityManager
+    
     constructor(public map: EntityToTableMap, public database: Database) {
         this.getPlaceholder = database.getPlaceholder || (() => (name?:string) => `?`)
+        this.filteredEntityManager = new FilteredEntityManager(map, this)
+        this.initializeFilteredEntityDependencies()
+    }
+    
+    /**
+     * 初始化所有 filtered entity 的依赖关系
+     */
+    private initializeFilteredEntityDependencies() {
+        const records = this.map.data.records
+        
+        for (const [recordName, recordData] of Object.entries(records)) {
+            if (recordData.baseRecordName && recordData.matchExpression) {
+                // 使用预计算的值
+                const rootEntityName = recordData.resolvedBaseRecordName || recordData.baseRecordName;
+                const combinedExpression = recordData.resolvedMatchExpression || recordData.matchExpression;
+                
+                this.filteredEntityManager.analyzeDependencies(
+                    recordName,
+                    rootEntityName,
+                    combinedExpression
+                )
+            }
+        }
     }
 
     // 有 prefix 说明是比人的子查询
@@ -247,7 +274,7 @@ ${modifierClause}
                     })
 
                     const nextContext = entityQuery.label ? nextRecursiveContext.concat(record) : nextRecursiveContext
-                    record[subEntityQuery.attributeName!] = await this.findRecords(subGotoQueryWithParentMatch, queryName, recordQueryRef, nextContext)
+                    record[subEntityQuery.alias || subEntityQuery.attributeName!] = await this.findRecords(subGotoQueryWithParentMatch, queryName, recordQueryRef, nextContext)
                 }
             }
         }
@@ -278,7 +305,7 @@ ${modifierClause}
 
                         setByPath(
                             record,
-                            [subEntityQuery.attributeName!, LINK_SYMBOL, subEntityQueryOfSubLink.attributeName!],
+                            [subEntityQuery.alias || subEntityQuery.attributeName!, LINK_SYMBOL, subEntityQueryOfSubLink.attributeName!],
                             await this.findRecords(
                                 queryOfThisRecord,
                                 `finding relation data: ${entityQuery.recordName}.${subEntityQuery.attributeName}.&.${subEntityQueryOfSubLink.attributeName}`,
@@ -297,7 +324,7 @@ ${modifierClause}
             if (!subEntityQuery.onlyRelationData) {
                 for (let record of records) {
                     const nextContext = entityQuery.label ? nextRecursiveContext.concat(record) : nextRecursiveContext
-                    record[subEntityQuery.attributeName!] = await this.findXToManyRelatedRecords(
+                    record[subEntityQuery.alias || subEntityQuery.attributeName!] = await this.findXToManyRelatedRecords(
                         entityQuery.recordName,
                         subEntityQuery.attributeName!,
                         record.id,
@@ -583,7 +610,8 @@ ${modifierClause}
     }
 
     buildFromClause(entityName: string, prefix = '') {
-        return `"${this.map.getRecordTable(entityName)}" AS "${this.withPrefix(prefix)}${entityName}"`
+        const recordInfo = this.map.getRecordInfo(entityName)
+        return `"${recordInfo.table}" AS "${this.withPrefix(prefix)}${entityName}"`
     }
 
     buildJoinClause(joinTables: JoinTables, prefix = '') {
@@ -647,11 +675,11 @@ ${modifierClause}
             const parentAttributeNamePath = exp.data.namePath!.slice(1, -1)
 
             const existEntityQuery = RecordQuery.create(info.recordName, this.map, {
-                    matchExpression: BoolExp.atom({
+                    matchExpression: MatchExp.atom({
                         key: `${reverseAttributeName}.id`,
                         value: ['=', parentAttributeNamePath.concat('id').join('.')],
                         isReferenceValue: true
-                    } as MatchAtom).and(exp.data.value[1] instanceof BoolExp ? exp.data.value[1] : MatchExp.atom(exp.data.value[1]))
+                    }).and(exp.data.value[1])
                 },
                 // 如果上层还有，就继承上层的，如果没有， context 就只这一层。这个变量是用来给 matchExpression 里面的 value 来引用上层的值的。
                 //  例如查询用户，要求他存在一个朋友的父母的年龄是小于这个用户。对朋友的父母的年龄匹配中，就需要引用最上层的 alias。
@@ -725,7 +753,7 @@ ${innerQuerySQL}
 
         // 处理 filtered entity - 检查新创建的记录是否属于任何 filtered entity
         // 传递 isCreation = true 表示这是创建操作，只生成事件但不持久化 __filtered_entities
-        await this.updateFilteredEntityFlags(newEntityData.recordName, newRecordIdRef.id, events, fullRecord, true)
+        await this.filteredEntityManager.updateFilteredEntityFlags(newEntityData.recordName, newRecordIdRef.id, events, fullRecord, true)
 
         // 更新 relianceResult 的信息到
         return Object.assign(newRecordIdRef, relianceResult)
@@ -919,8 +947,9 @@ ${innerQuerySQL}
         // 3. 插入新行。
         const sameRowNewFieldAndValue = newEntityDataWithIdsWithFlashOutRecords.getSameRowFieldAndValue()
         const p = this.getPlaceholder()
+        const recordInfo = this.map.getRecordInfo(newEntityData.recordName)
         const result = await this.database.insert(`
-INSERT INTO "${this.map.getRecordTable(newEntityData.recordName)}"
+INSERT INTO "${recordInfo.table}"
 (${sameRowNewFieldAndValue.map(f => `"${f.field}"`).join(',')})
 VALUES
 (${sameRowNewFieldAndValue.map(f => p()).join(',')}) 
@@ -1208,23 +1237,28 @@ WHERE "${entityInfo.idField}" = (${p()})
     async updateRecord(entityName: string, matchExpressionData: MatchExpressionData, newEntityData: NewRecordData, events?: RecordMutationEvent[]) {
         // 现在支持在 update 字段的同时，使用 null 来删除关系
         // FIXME update 的 attributeQuery 应该按需查询，现在查询的记录太多
-        const matchedEntities = await this.findRecords(RecordQuery.create(entityName, this.map, {
+
+        const updateRecordQuery = RecordQuery.create(entityName, this.map, {
             matchExpression: matchExpressionData,
             attributeQuery: AttributeQuery.getAttributeQueryDataForRecord(entityName, this.map, true, true, true, true)
-        }), `find record for updating ${entityName}`, undefined)
-
+        })
+        
+        const matchedEntities = await this.findRecords(updateRecordQuery, `find record for updating ${entityName}`, undefined)
+        // 注意下面使用的都是 updateRecordQuery 的 recordName，而不是 entityName，因为 RecordQuery 会根据 recordName 来判断是否是 filtered entity。
         const result: Record[] = []
         for (let matchedEntity of matchedEntities) {
             // 1. 创建我依赖的
             const newEntityDataWithDep = await this.createRecordDependency(newEntityData, events)
             // 2. 把同表的实体移出去，为新同表 Record 建立 id；可能有要删除的 reliance
-            const newEntityDataWithIdsWithFlashOutRecords = await this.updateSameRowData(entityName, matchedEntity, newEntityDataWithDep, events)
+            const newEntityDataWithIdsWithFlashOutRecords = await this.updateSameRowData(updateRecordQuery.recordName, matchedEntity, newEntityDataWithDep, events)
             // 3. 更新依赖我的和关系表独立的
-            const relianceUpdatedResult = await this.handleUpdateReliance(entityName, matchedEntity, newEntityData, events)
+            const relianceUpdatedResult = await this.handleUpdateReliance(updateRecordQuery.recordName, matchedEntity, newEntityData, events)
 
             // 处理 filtered entity - 检查更新后的记录是否属于任何 filtered entity
             // 传递原始的 matchedEntity，它包含更新前的 __filtered_entities 状态
-            await this.updateFilteredEntityFlags(entityName, matchedEntity.id, events, matchedEntity)
+            // 以及实际更改的字段
+            const changedFields = Object.keys(newEntityData.getData())
+            await this.filteredEntityManager.updateFilteredEntityFlags(updateRecordQuery.recordName, matchedEntity.id, events, matchedEntity, false, changedFields)
 
             result.push({...newEntityData.getData(), ...newEntityDataWithIdsWithFlashOutRecords.getData(), ...relianceUpdatedResult})
         }
@@ -1245,17 +1279,18 @@ WHERE "${entityInfo.idField}" = (${p()})
         })
         const records = await this.findRecords(deleteQuery, `find record for deleting ${recordName}`, undefined)
 
+        // 注意下面使用的都是 deleteQuery 的 recordName，而不是 entityName，因为 RecordQuery 会根据 recordName 来判断是否是 filtered entity。
         // CAUTION 我们应该先删除关系，再删除关联实体。按照下面的顺序就能保证事件顺序的正确。
         if (records.length) {
             // 删除关系数据（独立表或者关系在另一边的关系数据）
-            await this.deleteNotReliantSeparateLinkRecords(recordName, records, events)
+            await this.deleteNotReliantSeparateLinkRecords(deleteQuery.recordName, records, events)
             // 删除依赖我的实体（其他表中的）。注意, reliance 只可能是 1:x，不可能多个 n 个 record 被1个 reliace 依赖。
             //  为什么这里要单独计算 events, 是因为 1:1 并且刚好关系数据分配到了当前 record 上 时，关系事件顺序会不正确了。
             const relianceEvents: RecordMutationEvent[] = []
-            await this.deleteDifferentTableReliance(recordName, records, relianceEvents)
+            await this.deleteDifferentTableReliance(deleteQuery.recordName, records, relianceEvents)
             // 删除自身、有生命周期依赖的合表 record、合表到当前 record 的关系数据。
             const sameRowRecordEvents: RecordMutationEvent[] = []
-            await this.deleteRecordSameRowData(recordName, records, sameRowRecordEvents, inSameRowDataOp)
+            await this.deleteRecordSameRowData(deleteQuery.recordName, records, sameRowRecordEvents, inSameRowDataOp)
 
             // 1. recordEvents 除了最后一个外全都是关系删除事件。
             // 2. relianceEvents 中都是 reliance 删除事件，可能包含关系删除事件。
@@ -1349,7 +1384,7 @@ WHERE "${recordInfo.idField}" = ${p()}
         
         // 处理 filtered entity 的删除事件
         for (let record of records) {
-            const filteredEntities = this.getFilteredEntitiesForSource(recordName);
+            const filteredEntities = this.filteredEntityManager.getFilteredEntitiesForBase(recordName);
             if (filteredEntities.length > 0 && record.__filtered_entities) {
                 // __filtered_entities 可能已经被解析为对象
                 const currentFlags = typeof record.__filtered_entities === 'string' 
@@ -1492,7 +1527,7 @@ WHERE "${recordInfo.idField}" = ${p()}
 
     }
 
-    // 查找树形结构的两个数据见的 path
+    // 查找树形结构的两个数据间的 path
     async findPath(recordName: string, attributePathStr: string, startRecordId: string, endRecordId: string, limitLength?: number): Promise<Record[] | undefined> {
         const attributePathAndLast = attributePathStr.split('.')
         const endAttribute = attributePathAndLast.at(-1)!
@@ -1535,103 +1570,6 @@ WHERE "${recordInfo.idField}" = ${p()}
 
         // 如果找到了，把头也放进去。让数据格式整齐。
         return foundPath ? [record, ...foundPath] : undefined
-    }
-
-    // === Filtered Entity 相关方法 ===
-
-    /**
-     * 获取基于指定源实体的所有 filtered entities
-     */
-    getFilteredEntitiesForSource(sourceEntityName: string): Array<{ name: string, filterCondition: any }> {
-        return this.map.getRecordInfo(sourceEntityName).filteredBy?.map(recordInfo => ({
-            name: recordInfo.name,
-            filterCondition: recordInfo.filterCondition
-        })) || []
-    }
-
-    /**
-     * 更新记录的 filtered entity 标记
-     */
-    async updateFilteredEntityFlags(entityName: string, recordId: string, events?: RecordMutationEvent[], originalRecord?: Record, isCreation?: boolean) {
-        const filteredEntities = this.getFilteredEntitiesForSource(entityName);
-        
-        if (filteredEntities.length === 0) return;
-
-        // 获取原始记录的 __filtered_entities 状态
-        const originalFlags = originalRecord?.__filtered_entities || {};
-
-        // 获取更新后的记录以检查当前过滤条件
-        const idMatch = MatchExp.atom({ key: 'id', value: ['=', recordId] });
-        const updatedRecords = await this.findRecords(
-            RecordQuery.create(entityName, this.map, { matchExpression: idMatch, attributeQuery: ['*'] }),
-            `find updated record for filtered entity check ${entityName}:${recordId}`
-        );
-        
-        if (updatedRecords.length === 0) return;
-        const updatedRecord = updatedRecords[0];
-
-        // 检查每个 filtered entity 条件
-        const isNewRecord = !originalRecord?.__filtered_entities;
-        const newFlags = { ...originalFlags };
-        
-        for (const filteredEntity of filteredEntities) {
-            // 检查记录是否满足过滤条件 - 直接使用过滤条件查询
-            const matchingRecords = await this.findRecords(
-                RecordQuery.create(entityName, this.map, { matchExpression: filteredEntity.filterCondition.and({
-                    key: 'id',
-                    value: ['=', recordId]
-                }),
-                modifier: {
-                    limit: 1
-                }
-            }),
-                `check filtered entity condition ${filteredEntity.name} for ${entityName}`
-            );
-            
-            // 检查当前记录是否在匹配的记录中
-            const belongsToFilteredEntity = matchingRecords.length > 0;
-            const previouslyBelonged = originalFlags[filteredEntity.name] === true;
-            
-            newFlags[filteredEntity.name] = belongsToFilteredEntity;
-            
-            // 生成相应的事件
-            // 对于新创建的记录，如果满足条件就生成 create 事件
-            // 对于已存在的记录，只在状态变化时生成事件
-            if (belongsToFilteredEntity && (isNewRecord || !previouslyBelonged)) {
-                // 记录现在属于这个 filtered entity
-                events?.push({
-                    type: 'create',
-                    recordName: filteredEntity.name,
-                    record: { ...updatedRecord }
-                });
-            } else if (!belongsToFilteredEntity && previouslyBelonged && !isNewRecord) {
-                // 记录不再属于这个 filtered entity
-                events?.push({
-                    type: 'delete',
-                    recordName: filteredEntity.name,
-                    record: { ...updatedRecord }
-                });
-            }
-        }
-
-        // 更新 __filtered_entities 字段（这是内部操作，不生成事件）
-        if (JSON.stringify(originalFlags) !== JSON.stringify(newFlags)) {
-            // 获取 __filtered_entities 字段的实际数据库字段名
-            const recordInfo = this.map.getRecordInfo(entityName);
-            const filteredEntitiesAttribute = recordInfo.data.attributes['__filtered_entities'];
-            
-            if (filteredEntitiesAttribute && (filteredEntitiesAttribute as any).field) {
-                const fieldName = (filteredEntitiesAttribute as any).field;
-                const fieldType = (filteredEntitiesAttribute as any).fieldType;
-                
-                await this.updateRecordDataById(entityName, { id: recordId }, [
-                    { 
-                        field: fieldName, 
-                        value: this.prepareFieldValue(newFlags, fieldType) 
-                    }
-                ]);
-            }
-        }
     }
 
 }

@@ -25,12 +25,39 @@ const controller = new Controller({
 
 });
 
-// ✅ CORRECT: Using in computation field
+// ✅ CORRECT: Using in computation field (note: no defaultValue!)
 Property.create({
   name: 'userCount',
   type: 'number',
-  defaultValue: () => 0,
   computation: Count.create({ record: User })
+})
+```
+
+### 🔴 CRITICAL: defaultValue vs computation - MUTUALLY EXCLUSIVE!
+
+**A property can have EITHER `defaultValue` OR `computation`, but NEVER both!**
+
+```typescript
+// ❌ WRONG: Having both defaultValue and computation
+Property.create({
+  name: 'userCount',
+  type: 'number',
+  defaultValue: () => 0,  // ERROR! Remove this!
+  computation: Count.create({ record: User })
+})
+
+// ✅ CORRECT: Only computation (computation controls the value completely)
+Property.create({
+  name: 'userCount',
+  type: 'number',
+  computation: Count.create({ record: User })
+})
+
+// ✅ CORRECT: Only defaultValue (for static properties)
+Property.create({
+  name: 'status',
+  type: 'string',
+  defaultValue: () => 'draft'
 })
 ```
 
@@ -69,7 +96,6 @@ function updateLikeCount(postId) {
 Property.create({
   name: 'likeCount',
   type: 'number',
-  defaultValue: () => 0,
   computation: Count.create({
     record: LikeRelation  // Like count IS the count of relations
   })
@@ -181,10 +207,10 @@ When using `InteractionEventEntity` as the Transform input source, understand th
    })
    
    // ✅ CORRECT: Use StateMachine for updates
-   Property.create({
-     name: 'updatedAt',
-     type: 'timestamp',
-     computation: StateMachine.create({
+         Property.create({
+        name: 'updatedAt',
+        type: 'number',
+        computation: StateMachine.create({
        states: [updatedState],
        transfers: [
          StateTransfer.create({
@@ -201,9 +227,9 @@ When using `InteractionEventEntity` as the Transform input source, understand th
    Property.create({
      name: 'status',
      type: 'string',
-     defaultValue: () => 'active',
      computation: StateMachine.create({
        states: [activeState, deletedState],
+       defaultState: activeState,  // StateMachine controls initial value
        transfers: [
          StateTransfer.create({
            trigger: DeleteStyleInteraction,
@@ -249,8 +275,8 @@ export const Style = Entity.create({
     Property.create({ name: 'thumbKey', type: 'string' }),
     Property.create({ name: 'priority', type: 'number', defaultValue: () => 0 }),
     Property.create({ name: 'status', type: 'string', defaultValue: () => 'draft' }),
-    Property.create({ name: 'createdAt', type: 'timestamp', defaultValue: () => Math.floor(Date.now()/1000) }),
-    Property.create({ name: 'updatedAt', type: 'timestamp', defaultValue: () => Math.floor(Date.now()/1000) })
+    Property.create({ name: 'createdAt', type: 'number', defaultValue: () => Math.floor(Date.now()/1000) }),
+    Property.create({ name: 'updatedAt', type: 'number', defaultValue: () => Math.floor(Date.now()/1000) })
   ],
   // Transform in Entity's computation property
   computation: Transform.create({
@@ -273,6 +299,58 @@ export const Style = Entity.create({
       return null;
     }
   })
+});
+```
+
+#### Transform from Other Entities (Non-InteractionEventEntity)
+
+Transform can also use other entities as source, not just InteractionEventEntity. This is useful for creating derived entities based on existing data.
+
+**🔴 IMPORTANT: Establishing Relations**
+When transforming from one entity to another, if you want to establish a relation between the transformed entity and the source entity, you MUST explicitly include the source entity reference in the callback return value.
+
+```typescript
+import { Transform, Entity, Property, Relation } from 'interaqt';
+
+// Create snapshot entity from Style entity
+export const StyleSnapshot = Entity.create({
+  name: 'StyleSnapshot',
+  properties: [
+    Property.create({ name: 'label', type: 'string' }),
+    Property.create({ name: 'slug', type: 'string' }),
+    Property.create({ name: 'description', type: 'string' }),
+    Property.create({ name: 'snapshotTakenAt', type: 'number', defaultValue: () => Math.floor(Date.now()/1000) }),
+    Property.create({ name: 'version', type: 'number' })
+  ],
+  // Transform from Style entity (not InteractionEventEntity)
+  computation: Transform.create({
+    record: Style,  // ← Source is Style entity, not InteractionEventEntity
+    attributeQuery: ['id', 'label', 'slug', 'description', 'status'],
+    callback: function(style) {
+      // Only create snapshots for active styles
+      if (style.status === 'active') {
+        return {
+          label: style.label,
+          slug: style.slug,
+          description: style.description || '',
+          snapshotTakenAt: Math.floor(Date.now()/1000),
+          version: Date.now(),  // Simple version number
+          // 🔴 CRITICAL: Must explicitly reference source entity to create relation
+          originalStyle: style  // ← This creates the relation to source Style
+        };
+      }
+      return null;  // Don't create snapshot for non-active styles
+    }
+  })
+});
+
+// Define the relation between Style and StyleSnapshot
+export const StyleSnapshotRelation = Relation.create({
+  source: Style,
+  sourceProperty: 'snapshots',
+  target: StyleSnapshot,
+  targetProperty: 'originalStyle',
+  type: '1:n'  // One style can have many snapshots
 });
 ```
 
@@ -364,6 +442,26 @@ export const Style = Entity.create({
 
 Used for status changes and field updates.
 
+**🔴 IMPORTANT: StateTransfer Trigger Parameter**
+
+The `trigger` parameter in `StateTransfer.create()` must ALWAYS be an Interaction instance reference, NOT a string!
+
+```typescript
+// ❌ WRONG: Using string as trigger
+StateTransfer.create({
+  trigger: 'PublishStyle',  // ERROR! Don't use string!
+  current: draftState,
+  next: activeState
+})
+
+// ✅ CORRECT: Using Interaction instance reference
+StateTransfer.create({
+  trigger: PublishStyle,  // Correct! Reference to Interaction instance
+  current: draftState,
+  next: activeState
+})
+```
+
 #### Basic StateMachine
 ```typescript
 import { StateMachine, StateNode, StateTransfer } from 'interaqt';
@@ -398,11 +496,10 @@ const DeleteStyle = Interaction.create({
 Property.create({
   name: 'status',
   type: 'string',
-  defaultValue: () => 'draft',
   computation: StateMachine.create({
     name: 'StyleStatus',
     states: [draftState, activeState, offlineState],
-    defaultState: draftState,
+    defaultState: draftState,  // defaultState determines initial value
     transfers: [
       StateTransfer.create({
         current: draftState,
@@ -444,12 +541,11 @@ const updatedState = StateNode.create({
 
 Property.create({
   name: 'updatedAt',
-  type: 'timestamp',
-  defaultValue: () => Math.floor(Date.now()/1000),
+  type: 'number',
   computation: StateMachine.create({
     name: 'UpdatedAt',
     states: [updatedState],
-    defaultState: updatedState,
+    defaultState: updatedState,  // computeValue in updatedState provides initial value
     transfers: [
       StateTransfer.create({
         current: updatedState,
@@ -462,6 +558,114 @@ Property.create({
 })
 ```
 
+#### StateMachine with Event Context in computeValue
+
+The `computeValue` function can access the interaction event as a second parameter, allowing you to use interaction context (user, payload) in value computation:
+
+```typescript
+// Track who made changes and what was changed
+const UpdateArticle = Interaction.create({
+  name: 'UpdateArticle',
+  action: Action.create({ name: 'updateArticle' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'id', base: Article, isRef: true, required: true }),
+      PayloadItem.create({ name: 'title' }),
+      PayloadItem.create({ name: 'content' }),
+      PayloadItem.create({ name: 'updateReason' })
+    ]
+  })
+});
+
+// State node that captures user and payload information
+const modifiedState = StateNode.create({
+  name: 'modified',
+  // computeValue receives (lastValue, event) parameters
+  computeValue: (lastValue, event) => {
+    // Access user who triggered the update
+    const modifier = event?.user?.name || event?.user?.id || 'anonymous';
+    
+    // Access payload to see what was changed
+    const changes = [];
+    if (event?.payload?.title) changes.push('title');
+    if (event?.payload?.content) changes.push('content');
+    
+    return {
+      modifiedAt: Math.floor(Date.now()/1000),
+      modifiedBy: modifier,
+      changedFields: changes,
+      updateReason: event?.payload?.updateReason || 'No reason provided',
+      // Preserve previous modification history
+      previousModifications: lastValue?.previousModifications || []
+    };
+  }
+});
+
+// Apply to property
+Property.create({
+  name: 'modificationInfo',
+  type: 'object',
+  computation: StateMachine.create({
+    name: 'ModificationTracker',
+    states: [modifiedState],
+    defaultState: modifiedState,  // computeValue in modifiedState handles initial value
+    transfers: [
+      StateTransfer.create({
+        current: modifiedState,
+        next: modifiedState,
+        trigger: UpdateArticle,
+        computeTarget: (event) => ({ id: event.payload.id })
+      })
+    ]
+  })
+})
+
+// Another example: Approval workflow with approver tracking
+const ApproveRequest = Interaction.create({
+  name: 'ApproveRequest',
+  action: Action.create({ name: 'approveRequest' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'requestId', base: Request, isRef: true, required: true }),
+      PayloadItem.create({ name: 'comments' })
+    ]
+  })
+});
+
+const approvedState = StateNode.create({
+  name: 'approved',
+  computeValue: (lastValue, event) => {
+    // Capture complete approval context from event
+    return {
+      status: 'approved',
+      approvedAt: Math.floor(Date.now()/1000),
+      approvedBy: {
+        id: event?.user?.id,
+        name: event?.user?.name,
+        role: event?.user?.role
+      },
+      approvalComments: event?.payload?.comments,
+      // Keep approval history
+      approvalHistory: [
+        ...(lastValue?.approvalHistory || []),
+        {
+          action: 'approved',
+          timestamp: Math.floor(Date.now()/1000),
+          user: event?.user?.name || 'unknown',
+          comments: event?.payload?.comments
+        }
+      ]
+    };
+  }
+});
+```
+
+**Key Points about Event Parameter:**
+- The `event` parameter is optional and may be `undefined` during initial state setup
+- Contains the full interaction context: `user`, `payload`, `interactionName`, etc.
+- Useful for audit trails, tracking who made changes, and capturing interaction-specific data
+- Always use optional chaining (`?.`) when accessing event properties as it may be undefined
+
 ### 3. Count - Counts Relations/Entities
 
 ```typescript
@@ -473,7 +677,6 @@ const User = Entity.create({
     Property.create({
       name: 'styleCount',
       type: 'number',
-      defaultValue: () => 0,
       computation: Count.create({
         record: UserStyleRelation,
         direction: 'target'  // Count from user to styles
@@ -483,7 +686,6 @@ const User = Entity.create({
     Property.create({
       name: 'activeStyleCount',
       type: 'number',
-      defaultValue: () => 0,
       computation: Count.create({
         record: UserStyleRelation,
         direction: 'target',
@@ -524,7 +726,6 @@ const Order = Entity.create({
     Property.create({
       name: 'totalAmount',
       type: 'number',
-      defaultValue: () => 0,
       computation: WeightedSummation.create({
         record: OrderItemRelation,
         attributeQuery: [['target', { attributeQuery: ['quantity', 'price'] }]],
@@ -565,7 +766,6 @@ const Project = Entity.create({
     Property.create({
       name: 'isCompleted',
       type: 'boolean',
-      defaultValue: () => false,
       computation: Every.create({
         record: ProjectTaskRelation,
         callback: (relation) => relation.target.isCompleted === true
@@ -574,7 +774,6 @@ const Project = Entity.create({
     Property.create({
       name: 'hasCompletedTasks',
       type: 'boolean',
-      defaultValue: () => false,
       computation: Any.create({
         record: ProjectTaskRelation,
         callback: (relation) => relation.target.isCompleted === true
@@ -620,7 +819,6 @@ Before using Custom computation, ask yourself:
 Property.create({
   name: 'postCount',
   type: 'number',
-  defaultValue: () => 0,
   computation: Custom.create({
     name: 'SimplePostCount',
     dataDeps: {
@@ -653,7 +851,6 @@ Entity.create({
 Property.create({
   name: 'status',
   type: 'string',
-  defaultValue: () => 'active',
   computation: Custom.create({
     name: 'StatusUpdater',
     dataDeps: {
@@ -676,7 +873,6 @@ Property.create({
 const complexScoring = Dictionary.create({
   name: 'userEngagementScore',
   type: 'object',
-  defaultValue: () => ({}),
   computation: Custom.create({
     name: 'EngagementScorer',
     dataDeps: {
@@ -755,7 +951,6 @@ const complexScoring = Dictionary.create({
 const riskScoreCalculation = Dictionary.create({
   name: 'entityRiskScores',
   type: 'object',
-  defaultValue: () => ({}),
   computation: Custom.create({
     name: 'RiskScoreCalculator',
     dataDeps: {
@@ -912,8 +1107,7 @@ const updatedState = StateNode.create({
 
 Property.create({
   name: 'updatedAt',
-  type: 'timestamp',
-  defaultValue: () => Math.floor(Date.now()/1000),
+  type: 'number',
   computation: StateMachine.create({
     states: [updatedState],
     defaultState: updatedState,
@@ -950,7 +1144,6 @@ const offlineState = StateNode.create({ name: 'offline' });
 Property.create({
   name: 'status',
   type: 'string',
-  defaultValue: () => 'active',
   computation: StateMachine.create({
     states: [activeState, offlineState],
     defaultState: activeState,
@@ -974,14 +1167,17 @@ Property.create({
 - Use computed/getValue for simple property calculations
 - Keep computations pure and side-effect free
 - Declare StateNode variables before using them in StateMachine
+- Use Interaction instance references (not strings) as trigger in StateTransfer
 
 ### ❌ DON'T
 - Never use Transform in Property computation
+- **Don't use both defaultValue and computation on the same property** - they are mutually exclusive!
 - Don't create circular dependencies
 - Don't perform side effects in computations
 - Don't access external services in computations
 - Don't manually update computed values
 - Don't create StateNode inside StateTransfer
+- **Don't use strings as trigger in StateTransfer** - always use Interaction instance references
 
 ## What to Use Where
 
@@ -1002,7 +1198,7 @@ Property.create({
 // Created at - set once
 Property.create({
   name: 'createdAt',
-  type: 'timestamp',
+  type: 'number',
   defaultValue: () => Math.floor(Date.now()/1000)
 })
 
@@ -1014,8 +1210,7 @@ const updatedState = StateNode.create({
 
 Property.create({
   name: 'updatedAt',
-  type: 'timestamp',
-  defaultValue: () => Math.floor(Date.now()/1000),
+  type: 'number',
   computation: StateMachine.create({
     states: [updatedState],
     defaultState: updatedState,

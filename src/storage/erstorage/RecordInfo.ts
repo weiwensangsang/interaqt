@@ -12,18 +12,6 @@ export class RecordInfo {
         return this.data.isRelation
     }
 
-    get sourceRecordName() {
-        return this.data.sourceRecordName
-    }
-
-    get filterCondition() {
-        return this.data.filterCondition
-    }
-
-    get filteredBy() {
-        return this.data.filteredBy?.map(name => new RecordInfo(name, this.map))
-    }
-
     get combinedRecords() {
         return this.strictRecordAttributes.filter(info => {
             return info.isMergedWithParent()
@@ -31,7 +19,7 @@ export class RecordInfo {
     }
 
     get table() {
-        return this.map.getRecordTable(this.name)
+        return this.data.table
     }
 
     get idField() {
@@ -40,7 +28,7 @@ export class RecordInfo {
 
     get JSONFields() {
         return Object.entries(this.data.attributes).filter(([, attribute]) => {
-            return !(attribute as RecordAttribute).isRecord && ((attribute as ValueAttribute ).collection || (attribute as ValueAttribute).type === 'object')
+            return !(attribute as RecordAttribute).isRecord && ((attribute as ValueAttribute ).collection || (attribute as ValueAttribute).type === 'object' || (attribute as ValueAttribute).type === 'json')
         }).map(([attributeName]) => attributeName)
     }
 
@@ -90,7 +78,7 @@ export class RecordInfo {
         return Object.keys(this.data.attributes).filter(attribute => {
             const attributeData = this.data.attributes[attribute] as  RecordAttribute
             // CAUTION linkRecord 中有 field 就不能算了。比如 source/target
-            return attributeData.isRecord && !attributeData.field
+            return attributeData.isRecord && !attributeData.field && !attributeData.isFilteredRelation
         }).map(attribute => {
             return new AttributeInfo(this.name, attribute, this.map)
         })
@@ -131,6 +119,9 @@ export class RecordInfo {
     }
 
     get valueAttributes() {
+        if (!this.data) {
+            debugger
+        }
         return Object.entries(this.data.attributes).filter(([, attribute]) => {
             return !(attribute as RecordAttribute).isRecord
         }).map(([attributeName]) => {
@@ -140,5 +131,37 @@ export class RecordInfo {
 
     getAttributeInfo(attribute: string) {
         return new AttributeInfo(this.name, attribute, this.map)
+    }
+
+    get baseRecordName() {
+        return this.data.baseRecordName
+    }
+
+    get matchExpression() {
+        return this.data.matchExpression
+    }
+
+    get filteredBy() {
+        return this.data.filteredBy?.map(name => new RecordInfo(name, this.map))
+    }
+
+    get isFilteredEntity() {
+        return this.data.isFilteredEntity
+    }
+
+    get isFilteredRelation() {
+        return this.data.isFilteredRelation
+    }
+
+    get baseRelationName() {
+        return this.data.baseRelationName
+    }
+
+    get resolvedBaseRecordName() {
+        return this.data.resolvedBaseRecordName
+    }
+
+    get resolvedMatchExpression() {
+        return this.data.resolvedMatchExpression
     }
 }

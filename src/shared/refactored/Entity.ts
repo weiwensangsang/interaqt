@@ -9,16 +9,16 @@ export interface EntityInstance extends IInstance {
   name: string;
   properties: PropertyInstance[];
   computation?: ComputationInstance;
-  sourceEntity?: EntityInstance | RelationInstance; // for Filtered Entity
-  filterCondition?: object; // for Filtered Entity
+  baseEntity?: EntityInstance | RelationInstance; // for Filtered Entity
+  matchExpression?: object; // for Filtered Entity
 }
 
 export interface EntityCreateArgs {
   name: string;
   properties?: PropertyInstance[];
   computation?: ComputationInstance;
-  sourceEntity?: EntityInstance | RelationInstance;
-  filterCondition?: object;
+  baseEntity?: EntityInstance | RelationInstance;
+  matchExpression?: object;
 }
 
 export class Entity implements EntityInstance {
@@ -28,8 +28,8 @@ export class Entity implements EntityInstance {
   public name: string;
   public properties: PropertyInstance[];
   public computation?: ComputationInstance;
-  public sourceEntity?: EntityInstance | RelationInstance;
-  public filterCondition?: object;
+  public baseEntity?: EntityInstance | RelationInstance;
+  public matchExpression?: object;
   
   constructor(args: EntityCreateArgs, options?: { uuid?: string }) {
     this._options = options;
@@ -37,8 +37,8 @@ export class Entity implements EntityInstance {
     this.name = args.name;
     this.properties = args.properties || [];
     this.computation = args.computation;
-    this.sourceEntity = args.sourceEntity;
-    this.filterCondition = args.filterCondition;
+    this.baseEntity = args.baseEntity;
+    this.matchExpression = args.matchExpression;
   }
   
   // 静态属性和方法
@@ -73,12 +73,12 @@ export class Entity implements EntityInstance {
       collection: false as const,
       required: false as const,
     },
-    sourceEntity: {
+    baseEntity: {
       type: ['Entity', 'Relation'] as const,
       collection: false as const,
       required: false as const,
     },
-    filterCondition: {
+    matchExpression: {
       type: 'object' as const,
       collection: false as const,
       required: false as const,
@@ -103,8 +103,8 @@ export class Entity implements EntityInstance {
       name: instance.name,
       properties: instance.properties,
       computation: instance.computation,
-      sourceEntity: instance.sourceEntity,
-      filterCondition: instance.filterCondition
+      baseEntity: instance.baseEntity,
+      matchExpression: instance.matchExpression
     };
     
     const data: SerializedData<EntityCreateArgs> = {
@@ -121,8 +121,8 @@ export class Entity implements EntityInstance {
       name: instance.name,
       properties: [...instance.properties],
       computation: instance.computation,
-      sourceEntity: instance.sourceEntity,
-      filterCondition: instance.filterCondition
+      baseEntity: instance.baseEntity,
+      matchExpression: instance.matchExpression
     };
     
     return this.create(args);

@@ -116,13 +116,13 @@ describe("Entity System Refactored - compatibility test", () => {
       
       const filteredEntity = Entity.create({
         name: "ActiveUser",
-        sourceEntity: sourceEntity,
-        filterCondition: { status: "active" }
+        baseEntity: sourceEntity,
+        matchExpression: { status: "active" }
       });
 
       expect(filteredEntity.name).toBe("ActiveUser");
-      expect(filteredEntity.sourceEntity).toBe(sourceEntity);
-      expect(filteredEntity.filterCondition).toEqual({ status: "active" });
+      expect(filteredEntity.baseEntity).toBe(sourceEntity);
+      expect(filteredEntity.matchExpression).toEqual({ status: "active" });
     });
 
     test("should stringify and parse entity", () => {
@@ -198,7 +198,7 @@ describe("Entity System Refactored - compatibility test", () => {
         targetProperty: "as"
       });
 
-      expect(relation.name).toBe("A_bs_as_B");
+      expect(relation.name).toBe("CustomRelation");
     });
 
     test("should create relation with properties", () => {

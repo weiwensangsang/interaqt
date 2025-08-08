@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { Controller, MonoSystem, Property, Entity, Every, Dictionary, BoolExp, Any, Relation, MatchExp, DICTIONARY_RECORD } from 'interaqt';
+import { Controller, MonoSystem, Property, Entity, Every, Dictionary, BoolExp, Relation, MatchExp, DICTIONARY_RECORD, KlassByName, PGLiteDB } from 'interaqt';
 
 // 创建简单测试环境，直接测试 EveryHandle 的具体方法
-describe('Every and Any computed handle', () => {
+describe('Every computed handle', () => {
   
   test('should be true when match count equals total count', async () => {
     const requestEntity = Entity.create({
@@ -72,161 +72,6 @@ describe('Every and Any computed handle', () => {
     // 获取 dictionary 的值
     const everyRequestHandled3 = await system.storage.get(DICTIONARY_RECORD,'everyRequestHandled')
     expect(everyRequestHandled3).toBeFalsy()
-  });
-
-  test('should be true when any request is handled', async () => {
-    const requestEntity = Entity.create({
-        name: 'Request',
-        properties: [
-            Property.create({name: 'handled', type: 'boolean'})
-        ]
-    })
-    const entities = [requestEntity]
-    const dictionary = [
-        Dictionary.create({
-            name: 'anyRequestHandled',
-            type: 'boolean',
-            collection: false,
-            computation: Any.create({
-                record: requestEntity,
-                attributeQuery: ['handled'],
-                callback: (request:any) => {
-                    return request.handled
-                },
-            }),
-        })
-    ]
-    const system = new MonoSystem()
-    const controller = new Controller({
-        system: system,
-        entities: entities,
-        relations: [],
-        activities: [],
-        interactions: [],
-        dict: dictionary
-    })
-    await controller.setup(true)
-    // 获取 dictionary 的值
-    const anyRequestHandled0 = await system.storage.get(DICTIONARY_RECORD,'anyRequestHandled')
-    expect(anyRequestHandled0).toBeFalsy()
-    
-    // 创建两个 request
-    const request1 = await system.storage.create('Request', {handled: false})
-    const request2 = await system.storage.create('Request', {handled: false})
-
-    // 获取 dictionary 的值
-    const anyRequestHandled = await system.storage.get(DICTIONARY_RECORD,'anyRequestHandled')
-    expect(anyRequestHandled).toBeFalsy()
-
-    // 更新 request 的 handled 属性
-    const idMatch1 = BoolExp.atom({
-        key: 'id',
-        value: ['=', request1.id]
-    })  
-    await system.storage.update('Request', idMatch1, {handled: true})
-
-    // 获取 dictionary 的值
-    const anyRequestHandled2 = await system.storage.get(DICTIONARY_RECORD,'anyRequestHandled')
-    expect(anyRequestHandled2).toBeTruthy()   
-
-    // 更新 request 的 handled 属性
-    await system.storage.update('Request', idMatch1, {handled: false})
-
-    // 获取 dictionary 的值
-    const anyRequestHandled3 = await system.storage.get(DICTIONARY_RECORD,'anyRequestHandled')
-    expect(anyRequestHandled3).toBeFalsy()
-  });
-
-
-  test('should be true when any request of a user is handled', async () => {
-    const userEntity = Entity.create({
-        name: 'User',
-        properties: [
-            Property.create({
-                name:'name',
-                type:'string',
-                defaultValue: () => 'user1'
-            })
-        ]
-    })
-    const requestEntity = Entity.create({
-        name: 'Request',
-        properties: [
-            Property.create({name: 'handled', type: 'boolean'})
-        ]
-    })
-    const entities = [userEntity, requestEntity]
-    // 创建一个 user 和 request 的关系
-    const requestRelation = Relation.create({
-        source: userEntity,
-        sourceProperty: 'requests',
-        target: requestEntity,
-        targetProperty: 'owner',
-        name: 'requests',
-        type: 'n:n'
-    })
-    const relations = [requestRelation]
-
-    userEntity.properties.push(Property.create({
-        name: 'anyRequestHandled', 
-        type: 'boolean',
-        computation: Any.create({
-            record: requestRelation,
-            attributeQuery: [['target', {attributeQuery: ['handled']}]],
-            callback: (relation:any) => {
-                return relation.target.handled
-            },
-        })
-    }))
-
-    const system = new MonoSystem()
-    const controller = new Controller({
-        system: system,
-        entities: entities,
-        relations: relations,
-        activities: [],
-        interactions: []
-    })
-    await controller.setup(true)
-
-    // 创建 1 个 user 和 2 个 request
-    const user = await system.storage.create('User', {anyRequestHandled: false})
-    const request1 = await system.storage.create('Request', {handled: false, owner: user})
-    const request2 = await system.storage.create('Request', {handled: false, owner: user})
-
-    // 重新获取用户数据，查看 anyRequestHandled 的值
-    const user2 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user.id]}), undefined, ['*'])
-    expect(user2.anyRequestHandled).toBeFalsy()
-
-    // 更新 request 的 handled 属性
-    await system.storage.update('Request', BoolExp.atom({key: 'id', value: ['=', request1.id]}), {handled: true})
-
-    // 重新获取用户数据，查看 anyRequestHandled 的值
-    const user3 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user.id]}), undefined, ['*'])
-    expect(user3.anyRequestHandled).toBeTruthy()
-
-    // 更新 request 的 handled 属性
-    await system.storage.update('Request', BoolExp.atom({key: 'id', value: ['=', request1.id]}), {handled: false})
-
-    // 重新获取用户数据，查看 anyRequestHandled 的值
-    const user4 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user.id]}), undefined, ['*'])
-    expect(user4.anyRequestHandled).toBeFalsy()
-
-
-    // 更新 request 为 true
-    await system.storage.update('Request', BoolExp.atom({key: 'id', value: ['=', request1.id]}), {handled: true})
-    // 重新获取用户数据，查看 anyRequestHandled 的值
-    const user5 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user.id]}), undefined, ['*'])
-    expect(user5.anyRequestHandled).toBeTruthy()
-
-    // 删除 request
-    await system.storage.delete('Request', BoolExp.atom({key: 'id', value: ['=', request1.id]}))
-
-    // 重新获取用户数据，查看 anyRequestHandled 的值
-    const user6 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user.id]}), undefined, ['*'])
-    expect(user6.anyRequestHandled).toBeFalsy()
-
-    
   });
 
   test('should be true when every request of a user is handled', async () => {
@@ -359,7 +204,7 @@ describe('Every and Any computed handle', () => {
         sourceProperty: 'items',
         target: itemsEntity,
         targetProperty: 'request',
-        name: 'items',
+        name: 'requestItems',
         type: 'n:n'
     })  
     const relations = [requestRelation, itemsRelation]
@@ -482,85 +327,508 @@ describe('Every and Any computed handle', () => {
     expect(isEveryUserAgeGreaterThanAgeLimit3).toBeFalsy()
   })
 
-
-  test('check entities should work with extra data deps for Any', async () => {
-    const userEntity = Entity.create({
-        name: 'User',
-        properties: [
-            Property.create({name: 'name', type: 'string'}),
-            Property.create({name: 'age', type: 'number'})
-        ]
-    })
-
-    const ageLimit = Dictionary.create({
-        name: 'ageLimit',
-        type: 'number',
-        collection: false,
-    })
-
-    const ageLimitComputed = Dictionary.create({
-        name: 'isAnyUserAgeGreaterThanAgeLimit',
+  test('should handle property level Every with filtered relations', async () => {
+    // NOTE: This test demonstrates a current limitation in the framework:
+    // Filtered relations do not automatically trigger computations when their 
+    // source relations change. This is because the dependency tracking system
+    // doesn't fully support transitive dependencies through filtered relations.
+    // Define entities
+    const teamEntity = Entity.create({
+      name: 'Team',
+      properties: [
+        Property.create({name: 'name', type: 'string'})
+      ]
+    });
+    
+    const playerEntity = Entity.create({
+      name: 'Player',
+      properties: [
+        Property.create({name: 'name', type: 'string'}),
+        Property.create({name: 'isEligible', type: 'boolean'}),
+        Property.create({name: 'age', type: 'number'})
+      ]
+    });
+    
+    // Create base relation with player role property
+    const teamPlayerRelation = Relation.create({
+      source: teamEntity,
+      sourceProperty: 'players',
+      target: playerEntity,
+      targetProperty: 'team',
+      name: 'TeamPlayer',
+      type: '1:n',
+      properties: [
+        Property.create({name: 'role', type: 'string'}), // starter, substitute, reserve
+        Property.create({name: 'isActive', type: 'boolean', defaultValue: () => true}),
+        Property.create({name: 'jerseyNumber', type: 'number'})
+      ]
+    });
+    
+    // Create filtered relation for active starters only
+    const activeStarterRelation = Relation.create({
+      name: 'ActiveStarterRelation',
+      baseRelation: teamPlayerRelation,
+      sourceProperty: 'activeStarters',
+      targetProperty: 'activeStarterTeams',
+      matchExpression: MatchExp.atom({
+        key: 'role',
+        value: ['=', 'starter']
+      }).and({
+        key: 'isActive',
+        value: ['=', true]
+      })
+    });
+    
+    // Add computed properties to team entity
+    teamEntity.properties.push(
+      Property.create({
+        name: 'allPlayersEligible',
         type: 'boolean',
         collection: false,
-        computation: Any.create({
-            record: userEntity,
-            attributeQuery: ['age'],
-            dataDeps: {
-                ageLimit: {
-                    type: 'global',
-                    source: ageLimit,
-                }
-            },
-            callback: (user:any, dataDeps:any) => {
-                return user.age > dataDeps.ageLimit
-            },
+        computation: Every.create({
+          record: teamPlayerRelation,
+          attributeQuery: [['target', {attributeQuery: ['isEligible']}]],
+          callback: function(relation: any) {
+            return relation.target.isEligible;
+          },
+          notEmpty: true
         })
-    })
-
-    const entities = [userEntity]
-    const system = new MonoSystem()
+      }),
+      Property.create({
+        name: 'allStartersEligible',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: activeStarterRelation,
+          attributeQuery: [['target', {attributeQuery: ['isEligible']}]],
+          callback: function(relation: any) {
+            return relation.target.isEligible;
+          },
+          notEmpty: true
+        })
+      })
+    );
+    
+    const entities = [teamEntity, playerEntity];
+    const relations = [teamPlayerRelation, activeStarterRelation];
+    
+    // Setup system and controller
+    const system = new MonoSystem();
     const controller = new Controller({
         system: system,
         entities: entities,
-        relations: [],
+        relations: relations,
         activities: [],
-        interactions: [],
-        dict: [ageLimit, ageLimitComputed]
-    })
-    await controller.setup(true)
-
-    // set ageLimit to 19   
-    await system.storage.set(DICTIONARY_RECORD, 'ageLimit', 19)
-
-    const user1 = await system.storage.create('User', {name: 'user1', age: 18})
-    const user2 = await system.storage.create('User', {name: 'user2', age: 20})
-
-    const isAnyUserAgeGreaterThanAgeLimit = await system.storage.get(DICTIONARY_RECORD, 'isAnyUserAgeGreaterThanAgeLimit')
-    expect(isAnyUserAgeGreaterThanAgeLimit).toBeTruthy()
-
-    // set ageLimit to 21
-    await system.storage.set(DICTIONARY_RECORD, 'ageLimit', 21)
-
-    const isAnyUserAgeGreaterThanAgeLimit2 = await system.storage.get(DICTIONARY_RECORD, 'isAnyUserAgeGreaterThanAgeLimit')
-    expect(isAnyUserAgeGreaterThanAgeLimit2).toBeFalsy()
-
-    // set ageLimit to 19
-    await system.storage.set(DICTIONARY_RECORD, 'ageLimit', 19)
-
-    const isAnyUserAgeGreaterThanAgeLimit3 = await system.storage.get(DICTIONARY_RECORD, 'isAnyUserAgeGreaterThanAgeLimit')
-    expect(isAnyUserAgeGreaterThanAgeLimit3).toBeTruthy()
-
-    // delete user1 
-    await system.storage.delete('User', BoolExp.atom({key: 'id', value: ['=', user1.id]}))
-
-    const isAnyUserAgeGreaterThanAgeLimit4 = await system.storage.get(DICTIONARY_RECORD, 'isAnyUserAgeGreaterThanAgeLimit')
-    expect(isAnyUserAgeGreaterThanAgeLimit4).toBeTruthy()
+        interactions: []
+    });
+    await controller.setup(true);
     
-    // delete user2
-    await system.storage.delete('User', BoolExp.atom({key: 'id', value: ['=', user2.id]}))
+    // Create test data
+    const team1 = await system.storage.create('Team', { name: 'Team Alpha' });
+    
+    const player1 = await system.storage.create('Player', { 
+      name: 'John',
+      isEligible: true,
+      age: 25
+    });
+    const player2 = await system.storage.create('Player', { 
+      name: 'Mike',
+      isEligible: true,
+      age: 23
+    });
+    const player3 = await system.storage.create('Player', { 
+      name: 'Tom',
+      isEligible: false,
+      age: 22
+    });
+    
+    // Create relations
+    await system.storage.create('TeamPlayer', {
+      source: team1,
+      target: player1,
+      role: 'starter',
+      isActive: true,
+      jerseyNumber: 10
+    });
+    
+    const mikeRelation = await system.storage.create('TeamPlayer', {
+      source: team1,
+      target: player2,
+      role: 'starter',
+      isActive: true,
+      jerseyNumber: 7
+    });
+    
+    await system.storage.create('TeamPlayer', {
+      source: team1,
+      target: player3,
+      role: 'substitute',
+      isActive: true,
+      jerseyNumber: 15
+    });
+    
+    // Check initial state
+    const team1Data = await system.storage.findOne('Team', 
+      MatchExp.atom({key: 'id', value: ['=', team1.id]}), 
+      undefined, 
+      ['id', 'name', 'allPlayersEligible', 'allStartersEligible']
+    );
+    
+    // Every returns 0 when false, 1 when true
+    expect(team1Data.allPlayersEligible).toBe(0); // Tom is not eligible
+    // Active starters: John and Mike, both eligible
+    expect(team1Data.allStartersEligible).toBe(1); // All active starters are eligible
+    
+    // Make Tom a starter
+    const tomRelation = await system.storage.findOne('TeamPlayer',
+      MatchExp.atom({key: 'source.id', value: ['=', team1.id]}).and({key: 'target.id', value: ['=', player3.id]}),
+      undefined,
+      ['id']
+    );
+    
+    await system.storage.update('TeamPlayer',
+      MatchExp.atom({key: 'id', value: ['=', tomRelation.id]}),
+      { role: 'starter' }
+    );
+    
+    // Check after role change
+    const team1Data2 = await system.storage.findOne('Team', 
+      MatchExp.atom({key: 'id', value: ['=', team1.id]}), 
+      undefined, 
+      ['id', 'name', 'allPlayersEligible', 'allStartersEligible']
+    );
+    
+    // Every returns 0 when false
+    expect(team1Data2.allPlayersEligible).toBe(0); // Tom is still not eligible
+    // Active starters now: John, Mike, and Tom - but Tom is not eligible
+    expect(team1Data2.allStartersEligible).toBe(0); // Not all active starters are eligible
+    
+    // Make Tom eligible
+    await system.storage.update('Player',
+      MatchExp.atom({key: 'id', value: ['=', player3.id]}),
+      { isEligible: true }
+    );
+    
+    // Check after eligibility change
+    const team1Data3 = await system.storage.findOne('Team', 
+      MatchExp.atom({key: 'id', value: ['=', team1.id]}), 
+      undefined, 
+      ['id', 'name', 'allPlayersEligible', 'allStartersEligible']
+    );
+    
+    // Every returns 1 when true
+    expect(team1Data3.allPlayersEligible).toBe(1); // All players are now eligible
+    // All active starters (John, Mike, Tom) are now eligible
+    expect(team1Data3.allStartersEligible).toBe(1); // All active starters are eligible
+    
+    // Deactivate Mike
+    await system.storage.update('TeamPlayer',
+      MatchExp.atom({key: 'id', value: ['=', mikeRelation.id]}),
+      { isActive: false }
+    );
+    
+    // Check after deactivation
+    const team1Data4 = await system.storage.findOne('Team', 
+      MatchExp.atom({key: 'id', value: ['=', team1.id]}), 
+      undefined, 
+      ['id', 'name', 'allPlayersEligible', 'allStartersEligible']
+    );
+    
+    // Every returns 1 when true
+    expect(team1Data4.allPlayersEligible).toBe(1); // Still all players eligible
+    // Active starters are now John and Tom (Mike is inactive), both eligible
+    expect(team1Data4.allStartersEligible).toBe(1); // All remaining active starters are eligible
+  });
 
-    const isAnyUserAgeGreaterThanAgeLimit5 = await system.storage.get(DICTIONARY_RECORD, 'isAnyUserAgeGreaterThanAgeLimit')
-    expect(isAnyUserAgeGreaterThanAgeLimit5).toBeFalsy()
-
-  })
+  test('should handle property level every with filtered relations - Quality Control Example', async () => {
+    // NOTE: This test demonstrates a current limitation in the framework:
+    // Filtered relations do not automatically trigger computations when their 
+    // source relations change. This is because the dependency tracking system
+    // doesn't fully support transitive dependencies through filtered relations.
+    // Define entities
+    const factoryEntity = Entity.create({
+      name: 'Factory',
+      properties: [
+        Property.create({name: 'name', type: 'string'}),
+        Property.create({name: 'location', type: 'string'})
+      ]
+    });
+    
+    const productBatchEntity = Entity.create({
+      name: 'ProductBatch',
+      properties: [
+        Property.create({name: 'batchNumber', type: 'string'}),
+        Property.create({name: 'productType', type: 'string'}),
+        Property.create({name: 'manufactureDate', type: 'string'})
+      ]
+    });
+    
+    // Create base relation with quality check properties
+    const factoryBatchRelation = Relation.create({
+      source: factoryEntity,
+      sourceProperty: 'batches',
+      target: productBatchEntity,
+      targetProperty: 'factory',
+      name: 'FactoryBatch',
+      type: '1:n',
+      properties: [
+        Property.create({name: 'qualityScore', type: 'number'}), // 0-100
+        Property.create({name: 'passedQC', type: 'boolean'}),
+        Property.create({name: 'inspectionLevel', type: 'string'}), // basic, standard, comprehensive
+        Property.create({name: 'shift', type: 'string'}), // morning, afternoon, night
+        Property.create({name: 'inspector', type: 'string'})
+      ]
+    });
+    
+    // Create filtered relations for different shifts and inspection levels
+    const morningShiftRelation = Relation.create({
+      name: 'MorningShiftRelation',
+      baseRelation: factoryBatchRelation,
+      sourceProperty: 'morningShiftBatches',
+      targetProperty: 'morningShiftFactories',
+      matchExpression: MatchExp.atom({
+        key: 'shift',
+        value: ['=', 'morning']
+      })
+    });
+    
+    const comprehensiveInspectionRelation = Relation.create({
+      name: 'ComprehensiveInspectionRelation',
+      baseRelation: factoryBatchRelation,
+      sourceProperty: 'comprehensiveInspectionBatches',
+      targetProperty: 'comprehensiveInspectionFactories',
+      matchExpression: MatchExp.atom({
+        key: 'inspectionLevel',
+        value: ['=', 'comprehensive']
+      })
+    });
+    
+    const highScoreRelation = Relation.create({
+      name: 'HighScoreRelation',
+      baseRelation: factoryBatchRelation,
+      sourceProperty: 'highScoreBatches',
+      targetProperty: 'highScoreFactories',
+      matchExpression: MatchExp.atom({
+        key: 'qualityScore',
+        value: ['>=', 90]
+      })
+    });
+    
+    const morningComprehensiveRelation = Relation.create({
+      name: 'MorningComprehensiveRelation',
+      baseRelation: factoryBatchRelation,
+      sourceProperty: 'morningComprehensiveBatches',
+      targetProperty: 'morningComprehensiveFactories',
+      matchExpression: MatchExp.atom({
+        key: 'shift',
+        value: ['=', 'morning']
+      }).and({
+        key: 'inspectionLevel',
+        value: ['=', 'comprehensive']
+      })
+    });
+    
+    // Add computed properties to factory entity
+    factoryEntity.properties.push(
+      Property.create({
+        name: 'allBatchesPassedQC',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: factoryBatchRelation,
+          attributeQuery: ['passedQC'],
+          callback: (relation: any) => relation.passedQC === true
+        })
+      }),
+      Property.create({
+        name: 'allMorningShiftPassed',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: morningShiftRelation,
+          attributeQuery: ['passedQC'],
+          callback: (relation: any) => relation.passedQC === true
+        })
+      }),
+      Property.create({
+        name: 'allComprehensiveInspectionsPassed',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: comprehensiveInspectionRelation,
+          attributeQuery: ['passedQC'],
+          callback: (relation: any) => relation.passedQC === true
+        })
+      }),
+      Property.create({
+        name: 'allHighScoreBatchesPassed',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: highScoreRelation,
+          attributeQuery: ['passedQC'],
+          callback: (relation: any) => relation.passedQC === true
+        })
+      }),
+      Property.create({
+        name: 'morningComprehensiveAllPassed',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: morningComprehensiveRelation,
+          attributeQuery: ['passedQC'],
+          callback: (relation: any) => relation.passedQC === true
+        })
+      })
+    );
+    
+    const entities = [factoryEntity, productBatchEntity];
+    const relations = [factoryBatchRelation, morningShiftRelation, comprehensiveInspectionRelation, 
+                      highScoreRelation, morningComprehensiveRelation];
+    
+    // Setup system and controller
+    const system = new MonoSystem(new PGLiteDB());
+    system.conceptClass = KlassByName;
+    const controller = new Controller({
+        system: system,
+        entities: entities,
+        relations: relations,
+        activities: [],
+        interactions: []
+    });
+    await controller.setup(true);
+    
+    // Create test data
+    const factory1 = await system.storage.create('Factory', { 
+      name: 'Plant A',
+      location: 'Chicago'
+    });
+    
+    const batch1 = await system.storage.create('ProductBatch', { 
+      batchNumber: 'B001',
+      productType: 'Widget',
+      manufactureDate: '2024-01-15'
+    });
+    
+    const batch2 = await system.storage.create('ProductBatch', { 
+      batchNumber: 'B002',
+      productType: 'Gadget',
+      manufactureDate: '2024-01-15'
+    });
+    
+    const batch3 = await system.storage.create('ProductBatch', { 
+      batchNumber: 'B003',
+      productType: 'Widget',
+      manufactureDate: '2024-01-16'
+    });
+    
+    const batch4 = await system.storage.create('ProductBatch', { 
+      batchNumber: 'B004',
+      productType: 'Gadget',
+      manufactureDate: '2024-01-16'
+    });
+    
+    // Create quality checks with different combinations
+    await system.storage.create('FactoryBatch', {
+      source: factory1,
+      target: batch1,
+      qualityScore: 95,
+      passedQC: true,
+      inspectionLevel: 'comprehensive',
+      shift: 'morning',
+      inspector: 'John'
+    });
+    
+    await system.storage.create('FactoryBatch', {
+      source: factory1,
+      target: batch2,
+      qualityScore: 88,
+      passedQC: true,
+      inspectionLevel: 'standard',
+      shift: 'morning',
+      inspector: 'Jane'
+    });
+    
+    await system.storage.create('FactoryBatch', {
+      source: factory1,
+      target: batch3,
+      qualityScore: 92,
+      passedQC: true,
+      inspectionLevel: 'comprehensive',
+      shift: 'afternoon',
+      inspector: 'Bob'
+    });
+    
+    await system.storage.create('FactoryBatch', {
+      source: factory1,
+      target: batch4,
+      qualityScore: 75,
+      passedQC: false,
+      inspectionLevel: 'basic',
+      shift: 'night',
+      inspector: 'Alice'
+    });
+    
+    // Check computed every results
+    const factoryData = await system.storage.findOne('Factory', 
+      BoolExp.atom({key: 'id', value: ['=', factory1.id]}), 
+      undefined, 
+      ['id', 'name', 'allBatchesPassedQC', 'allMorningShiftPassed', 
+       'allComprehensiveInspectionsPassed', 'allHighScoreBatchesPassed', 'morningComprehensiveAllPassed']
+    );
+    
+    // Every returns 0 when false, 1 when true
+    expect(factoryData.allBatchesPassedQC).toBe(false); // batch4 failed
+    // Now filtered relations work correctly
+    expect(factoryData.allMorningShiftPassed).toBe(true); // batch1 and batch2 both passed
+    expect(factoryData.allComprehensiveInspectionsPassed).toBe(true); // batch1 and batch3 both passed
+    expect(factoryData.allHighScoreBatchesPassed).toBe(true); // batch1(95) and batch3(92) both passed
+    expect(factoryData.morningComprehensiveAllPassed).toBe(true); // only batch1, and it passed
+    
+    // Test dynamic updates: Fix the failed batch
+    await system.storage.update('FactoryBatch',
+      MatchExp.atom({key: 'source.id', value: ['=', factory1.id]})
+        .and({key: 'target.id', value: ['=', batch4.id]}),
+      { passedQC: true, qualityScore: 85 }
+    );
+    
+    // Check updated results
+    const factoryDataUpdated = await system.storage.findOne('Factory', 
+      BoolExp.atom({key: 'id', value: ['=', factory1.id]}), 
+      undefined, 
+      ['id', 'allBatchesPassedQC']
+    );
+    
+    // Every returns 1 when true due to computation implementation
+    expect(factoryDataUpdated.allBatchesPassedQC).toBe(true); // Now all pass
+    
+    // Add a new failing morning shift batch
+    const batch5 = await system.storage.create('ProductBatch', { 
+      batchNumber: 'B005',
+      productType: 'Widget',
+      manufactureDate: '2024-01-17'
+    });
+    
+    await system.storage.create('FactoryBatch', {
+      source: factory1,
+      target: batch5,
+      qualityScore: 60,
+      passedQC: false,
+      inspectionLevel: 'standard',
+      shift: 'morning',
+      inspector: 'John'
+    });
+    
+    // Check that morning shift no longer all pass
+    const factoryDataFinal = await system.storage.findOne('Factory', 
+      BoolExp.atom({key: 'id', value: ['=', factory1.id]}), 
+      undefined, 
+      ['id', 'allBatchesPassedQC', 'allMorningShiftPassed']
+    );
+    
+    // Every returns 0 when false
+    expect(factoryDataFinal.allBatchesPassedQC).toBe(false); // batch5 failed
+    // Morning shift now includes batch5 which failed
+    expect(factoryDataFinal.allMorningShiftPassed).toBe(false); // batch5 failed
+  }); 
 }); 

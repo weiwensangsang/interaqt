@@ -1,9 +1,10 @@
-import {BoolExp} from "@shared";
-import {EntityToTableMap} from "./EntityToTableMap.js";
+import {BoolExp, BoolExpressionRawData, ExpressionData} from "@shared";
+import {EntityToTableMap, RecordAttribute} from "./EntityToTableMap.js";
 import {assert} from "../utils.js";
 import {RecordQueryTree} from "./RecordQuery.js";
 import {Database} from "@runtime";
 import {PlaceholderGen} from "./RecordQueryAgent.js";
+import { AttributeInfo } from "./AttributeInfo.js";
 
 export type MatchAtom = { key: string, value: [string, any], isReferenceValue?: boolean }
 export type MatchExpressionData = BoolExp<MatchAtom>
@@ -38,17 +39,103 @@ export class MatchExp {
         })
         return root!
     }
+    
+    /**
+     * 从 MatchExpressionData 中提取所有路径
+     * @returns 路径数组，每个路径是一个字符串数组
+     */
+    public static extractPaths(expression: MatchExpressionData): string[][] {
+        const paths: string[][] = [];
+        
+        // MatchExpressionData 是 BoolExp<MatchAtom> 的别名
+        const boolExp = expression instanceof BoolExp ? expression : BoolExp.fromValue(expression);
+        
+        if (boolExp.isExpression()) {
+            if (boolExp.left) {
+                paths.push(...MatchExp.extractPaths(boolExp.left.raw as MatchExpressionData));
+            }
+            if (boolExp.right) {
+                paths.push(...MatchExp.extractPaths(boolExp.right.raw as MatchExpressionData));
+            }
+        } else if (boolExp.isAtom()) {
+            const matchAtom = boolExp.data as MatchAtom;
+            const key = matchAtom.key;
+            const pathParts = key.split('.');
+            
+            // 如果路径包含多个部分（即有关联查询），需要验证
+            if (pathParts.length > 1) {
+                paths.push(pathParts);
+            }
+        }
+        
+        return paths;
+    }
 
     public xToOneQueryTree: RecordQueryTree
-
-    constructor(public entityName: string, public map: EntityToTableMap, public data?: MatchExpressionData, public contextRootEntity?: string, public fromRelation?: boolean) {
+    public data?: MatchExpressionData
+    public entityName: string
+    constructor(entityName: string, public map: EntityToTableMap, data?: MatchExpressionData, public contextRootEntity?: string, public fromRelation?: boolean) {
+        assert(!data || data instanceof BoolExp, `match data is not a BoolExpression instance, you passed: ${this.data}`)
+        const recordInfo = this.map.getRecordInfo(entityName)
+        this.entityName = recordInfo.isFilteredEntity || recordInfo.isFilteredRelation ? recordInfo.baseRecordName! : entityName
+        const isFiltered = recordInfo.isFilteredEntity || recordInfo.isFilteredRelation
         this.xToOneQueryTree = new RecordQueryTree(this.entityName, this.map)
-        if (this.data) {
-            assert(this.data instanceof BoolExp, `match data is not a BoolExpression instance, you passed: ${this.data}`)
+        let combinedData = data
+        if (isFiltered) {
+            combinedData = data ? recordInfo.matchExpression!.and(data) : recordInfo.matchExpression
+        }
+        if (combinedData) {
+            this.data = this.convertFilteredRelation(combinedData)
             this.buildQueryTree(this.data, this.xToOneQueryTree)
         }
     }
+    convertFilteredRelation(matchData: MatchExpressionData): MatchExpressionData {
+        if (matchData.isExpression()) {
+            const newLeft = this.convertFilteredRelation(matchData.left)
+            const newRight = matchData.right ? this.convertFilteredRelation(matchData.right) : undefined
+            const matchExpRawData = matchData.raw as BoolExpressionRawData<MatchAtom>
+            return new BoolExp<MatchAtom>({
+                type: 'expression',
+                operator: matchExpRawData.operator,
+                left: newLeft.raw,
+                right: newRight?.raw
+            })
+        } else {
+            // variable
+            const matchAttributePath = (matchData.data.key as string).split('.')
+            const {resolvedPath, matchExpression:matchExpressionInPath} = matchAttributePath.reduce((result, part) => {
+                const currentPath = [...result.resolvedPath, part]
+                const currentPathInfo = this.map.getInfoByPath(currentPath)
+                const currentResolvedPath = result.resolvedPath.concat(currentPathInfo?.isLinkFiltered() ? currentPathInfo.getBaseAttributeInfo().attributeName : part)
 
+                let currentMatchExpression = result.matchExpression
+
+                if(currentPathInfo?.isLinkFiltered()) {
+                    const linkInfo = currentPathInfo.getLinkInfo()
+                    const linkMatchExp = new MatchExp(linkInfo.getResolvedBaseRecordName()!, this.map, linkInfo.getResolvedMatchExpression())
+                    const reversePath = this.map.getReversePath(currentResolvedPath)
+                    const rebasePathStart = currentPathInfo.isRecordSource() ? 'source' : 'target'
+                    const rebasePath = [rebasePathStart, ...reversePath.slice(2)]
+                    const rebasedLinkMatch = linkMatchExp.rebase(rebasePath.join('.'))
+                    currentMatchExpression = currentMatchExpression? currentMatchExpression.and(rebasedLinkMatch) : rebasedLinkMatch
+                }
+
+
+                return {
+                    path: [...result.path, part],
+                    resolvedPath: currentResolvedPath,
+                    matchExpression: currentMatchExpression
+                }
+            }, {path:[this.entityName], resolvedPath:[this.entityName], matchExpression:undefined} as {path:string[], resolvedPath:string[], matchExpression:MatchExp|undefined})
+
+            if( !matchExpressionInPath) {
+                return matchData
+            }
+
+            const baseMatchExpAtom = MatchExp.atom({key:resolvedPath.slice(1).join('.'), value: matchData.data.value})
+            return baseMatchExpAtom.and(matchExpressionInPath.data)
+        }
+    }
     buildQueryTree(matchData: MatchExpressionData, recordQueryTree: RecordQueryTree) {
         if (matchData.isExpression()) {
             if (matchData.left) {
@@ -235,6 +322,7 @@ export class MatchExp {
 
     and(condition: MatchAtom|MatchExp): MatchExp {
         if (condition instanceof MatchExp) {
+            assert(this.entityName === condition.entityName, `cannot and match exp of different entity: ${this.entityName} and ${condition.entityName}`)
             return new MatchExp(this.entityName, this.map, this.data ? this.data.and(condition.data) : condition.data, this.contextRootEntity)
         } else {
             assert(condition.key !== undefined, 'key cannot be undefined')
@@ -243,5 +331,64 @@ export class MatchExp {
             return new MatchExp(this.entityName, this.map, this.data ? this.data.and(condition) : BoolExp.atom<MatchAtom>(condition), this.contextRootEntity)
         }
 
+    }
+
+    rebase(attributeName: string) {
+        // 验证属性是否存在且是实体关联
+        const attributeInfo = this.map.getInfo(this.entityName, attributeName);
+        assert(attributeInfo.isRecord, `attribute ${attributeName} is not an entity relation`);
+
+        
+        const targetEntityName = attributeInfo.recordName;
+        const reverseAttribute = this.map.getReverseAttribute(this.entityName, attributeName);
+        
+        // 统一的路径转换函数
+        const transformData = (data: MatchExpressionData | undefined): MatchExpressionData | undefined => {
+            if (!data) return undefined;
+            
+            if (data.isExpression()) {
+                const left = transformData(data.left);
+                const right = transformData(data.right);
+                
+                if (!left && !right) return undefined;
+                if (!left) return right;
+                if (!right) return left;
+                
+                const operator = (data.raw as any).operator;
+                if (operator === 'and') {
+                    return left.and(right);
+                } else if (operator === 'or') {
+                    return left.or(right);
+                } else if (operator === 'not') {
+                    return left.not();
+                }
+            } else if (data.isAtom()) {
+                const atom = data.data as MatchAtom;
+                const keyParts = atom.key.split('.');
+                
+                // 路径缩短：如果条件以目标属性开头，移除前缀
+                if (keyParts[0] === attributeName) {
+                    const newKey = keyParts.slice(1).join('.');
+                    return BoolExp.atom<MatchAtom>({
+                        key: newKey,
+                        value: atom.value,
+                        isReferenceValue: atom.isReferenceValue
+                    });
+                }
+                
+                // 路径增长：为所有其他条件添加反向属性前缀
+                const newKey = this.map.getShrinkedAttribute(targetEntityName, `${reverseAttribute}.${atom.key}`)
+                return BoolExp.atom<MatchAtom>({
+                    key: newKey,
+                    value: atom.value,
+                    isReferenceValue: atom.isReferenceValue
+                });
+            }
+            
+            return undefined;
+        };
+        
+        const transformedData = this.data ? transformData(this.data) : undefined;
+        return new MatchExp(targetEntityName, this.map, transformedData, this.contextRootEntity, this.fromRelation);
     }
 }

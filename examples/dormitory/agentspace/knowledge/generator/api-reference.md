@@ -18,7 +18,7 @@ Entity.create(config: EntityConfig): EntityInstance
 - `config.properties` (Property[], required): Entity property list, defaults to empty array
 - `config.computation` (Computation[], optional): Entity-level computed data
 - `config.sourceEntity` (Entity|Relation, optional): Source entity for filtered entity (used to create filtered entities)
-- `config.filterCondition` (MatchExp, optional): Filter condition (used to create filtered entities)
+- `config.matchExpression` (MatchExp, optional): Match expression (used to create filtered entities)
 
 **Examples**
 ```typescript
@@ -35,12 +35,66 @@ const User = Entity.create({
 const ActiveUser = Entity.create({
     name: 'ActiveUser',
     sourceEntity: User,
-    filterCondition: MatchExp.atom({
+    matchExpression: MatchExp.atom({
         key: 'status',
         value: ['=', 'active']
     })
 })
 ```
+
+**Filtered Entities**
+
+Filtered entities are views of existing entities that automatically filter records based on specified conditions. They support:
+
+1. **Cascade Filtering**: Filtered entities can be used as `sourceEntity` to create new filtered entities:
+```typescript
+// First level filter
+const ActiveUser = Entity.create({
+    name: 'ActiveUser',
+    sourceEntity: User,
+    matchExpression: MatchExp.atom({
+        key: 'isActive',
+        value: ['=', true]
+    })
+})
+
+// Second level filter - based on ActiveUser
+const TechActiveUser = Entity.create({
+    name: 'TechActiveUser',
+    sourceEntity: ActiveUser,  // Using filtered entity as source
+    matchExpression: MatchExp.atom({
+        key: 'department',
+        value: ['=', 'Tech']
+    })
+})
+
+// Third level filter - even more specific
+const SeniorTechActiveUser = Entity.create({
+    name: 'SeniorTechActiveUser',
+    sourceEntity: TechActiveUser,
+    matchExpression: MatchExp.atom({
+        key: 'role',
+        value: ['=', 'senior']
+    })
+})
+```
+
+2. **Complex Conditions**: Use boolean expressions for complex filtering:
+```typescript
+const TechYoungUser = Entity.create({
+    name: 'TechYoungUser',
+    sourceEntity: User,
+    matchExpression: MatchExp.atom({
+        key: 'age',
+        value: ['<', 30]
+    }).and({
+        key: 'department',
+        value: ['=', 'Tech']
+    })
+})
+```
+
+3. **Automatic Updates**: When source entity records are created, updated, or deleted, filtered entities automatically reflect these changes based on their match expressions.
 
 ### Property.create()
 
@@ -70,7 +124,7 @@ const username = Property.create({
 // Property with default value
 const createdAt = Property.create({
     name: 'createdAt',
-    type: 'timestamp',
+    type: 'number',
     defaultValue: () => Math.floor(Date.now()/1000)
 })
 
@@ -87,7 +141,6 @@ const fullName = Property.create({
 const postCount = Property.create({
     name: 'postCount',
     type: 'number',
-    defaultValue: () => 0,  // Must provide default value
     computation: Count.create({
         record: UserPostRelation
     })
@@ -96,27 +149,35 @@ const postCount = Property.create({
 
 ### Relation.create()
 
-Create relationship definition between entities.
+Create relationship definition between entities or create filtered views of existing relations.
 
 **Syntax**
 ```typescript
 Relation.create(config: RelationConfig): RelationInstance
 ```
 
+**Two Types of Relations**
+1. **Base Relations**: Define direct relationships between entities (requires `source`, `target`, `type`)
+2. **Filtered Relations**: Create filtered views of existing relations (requires `sourceRelation`, `matchExpression`)
+
 **Important: Auto-Generated Relation Names**
 
-⚠️ **DO NOT specify a `name` property when creating relations.** The framework automatically generates the relation name based on the source and target entities. For example:
+If you did not specify a `name` property when creating relations, The framework will automatically generates the relation name based on the source and target entities. For example:
 - A relation between `User` and `Post` → automatically named `UserPost`
 - A relation between `Post` and `Comment` → automatically named `PostComment`
 
 **Parameters**
-- `config.source` (Entity|Relation, required): Source entity of the relationship
+- `config.name` (string, optional): Relation name. If not specified, will be auto-generated from source and target entity names
+- `config.source` (Entity|Relation, required for base relations): Source entity of the relationship
 - `config.sourceProperty` (string, required): Relationship property name in source entity
-- `config.target` (Entity|Relation, required): Target entity of the relationship
+- `config.target` (Entity|Relation, required for base relations): Target entity of the relationship
 - `config.targetProperty` (string, required): Relationship property name in target entity
-- `config.type` (string, required): Relationship type, options: '1:1' | '1:n' | 'n:1' | 'n:n'
+- `config.type` (string, required for base relations): Relationship type, options: '1:1' | '1:n' | 'n:1' | 'n:n'
 - `config.properties` (Property[], optional): Properties of the relationship itself
 - `config.computation` (Computation, optional): Relationship-level computed data
+- `config.sourceRelation` (Relation, required for filtered relations): Source relation to filter from
+- `config.matchExpression` (MatchExp, required for filtered relations): Filter condition for the relation records
+
 
 **Note on Symmetric Relations**: The system automatically detects symmetric relations when `source === target` AND `sourceProperty === targetProperty`. There is no need to specify a `symmetric` parameter.
 
@@ -164,6 +225,84 @@ const UserRoleRelation = Relation.create({
 })
 ```
 
+**Filtered Relations**
+
+Filtered relations are views of existing relations that automatically filter relationship records based on specified conditions. They support:
+
+1. **Basic Filtered Relations**: Create filtered views based on relation properties:
+```typescript
+// Base relation with properties
+const UserPostRelation = Relation.create({
+    source: User,
+    sourceProperty: 'posts',
+    target: Post,
+    targetProperty: 'author',
+    type: '1:n',
+    properties: [
+        Property.create({ name: 'isPublished', type: 'boolean' }),
+        Property.create({ name: 'priority', type: 'string' })
+    ]
+})
+
+// Filtered relation - only published posts
+const PublishedUserPostRelation = Relation.create({
+    name: 'PublishedUserPostRelation',
+    sourceRelation: UserPostRelation,
+    sourceProperty: 'publishedPosts',
+    targetProperty: 'publishedAuthor',
+    matchExpression: MatchExp.atom({
+        key: 'isPublished',
+        value: ['=', true]
+    })
+})
+```
+
+2. **Cascade Filtering**: Filtered relations can be used as `sourceRelation` to create new filtered relations:
+```typescript
+// First level filter - active assignments
+const ActiveUserProjectRelation = Relation.create({
+    name: 'ActiveUserProjectRelation',
+    sourceRelation: UserProjectRelation,
+    sourceProperty: 'activeProjects',
+    targetProperty: 'activeUsers',
+    matchExpression: MatchExp.atom({
+        key: 'isActive',
+        value: ['=', true]
+    })
+})
+
+// Second level filter - only lead roles from active assignments
+const LeadUserProjectRelation = Relation.create({
+    name: 'LeadUserProjectRelation',
+    sourceRelation: ActiveUserProjectRelation,  // Using filtered relation as source
+    sourceProperty: 'leadProjects',
+    targetProperty: 'leadUsers',
+    matchExpression: MatchExp.atom({
+        key: 'role',
+        value: ['=', 'lead']
+    })
+})
+```
+
+3. **Complex Filter Conditions**: Combine multiple conditions:
+```typescript
+const ImportantActiveRelation = Relation.create({
+    name: 'ImportantActiveRelation',
+    sourceRelation: UserTaskRelation,
+    sourceProperty: 'importantActiveTasks',
+    targetProperty: 'assignedToImportant',
+    matchExpression: MatchExp.atom({
+        key: 'priority',
+        value: ['=', 'high']
+    }).and({
+        key: 'status',
+        value: ['=', 'active']
+    })
+})
+```
+
+4. **Automatic Updates**: When source relation records are created, updated, or deleted, filtered relations automatically reflect these changes based on their match expressions. For example, if a relation's `isActive` property is updated from `false` to `true`, it will automatically appear in the corresponding filtered relation.
+
 ## 13.2 Computation-Related APIs
 
 ### Count.create()
@@ -193,7 +332,6 @@ const totalUsers = Count.create({
 const userPostCount = Property.create({
     name: 'postCount',
     type: 'number',
-    defaultValue: () => 0,  // Must provide default value
     computation: Count.create({
         record: UserPostRelation
     })
@@ -203,7 +341,6 @@ const userPostCount = Property.create({
 const publishedPostCount = Property.create({
     name: 'publishedPostCount',
     type: 'number',
-    defaultValue: () => 0,
     computation: Count.create({
         record: UserPostRelation,
         attributeQuery: [['target', {attributeQuery: ['status']}]],
@@ -222,7 +359,6 @@ const minScoreThreshold = Dictionary.create({
 const highScorePostCount = Property.create({
     name: 'highScorePostCount',
     type: 'number',
-    defaultValue: () => 0,
     computation: Count.create({
         record: UserPostRelation,
         attributeQuery: [['target', {attributeQuery: ['score']}]],
@@ -268,7 +404,6 @@ const activeUsersCount = Dictionary.create({
 const authorPostCount = Property.create({
     name: 'authoredPostCount',
     type: 'number',
-    defaultValue: () => 0,
     computation: Count.create({
         record: UserPostRelation,
         direction: 'target'  // Count related posts from user perspective
@@ -296,7 +431,6 @@ WeightedSummation.create(config: WeightedSummationConfig): WeightedSummationInst
 const userTotalScore = Property.create({
     name: 'totalScore',
     type: 'number',
-    defaultValue: () => 0,  // Must provide default value
     computation: WeightedSummation.create({
         record: UserScoreRelation,
         callback: function(scoreRecord) {
@@ -355,7 +489,6 @@ const totalRevenue = Dictionary.create({
 const userTotalSpent = Property.create({
     name: 'totalSpent',
     type: 'number',
-    defaultValue: () => 0,  // Must provide default value
     computation: Summation.create({
         record: UserOrderRelation,
         attributeQuery: [['target', {attributeQuery: ['totalAmount']}]]
@@ -366,7 +499,6 @@ const userTotalSpent = Property.create({
 const departmentBudget = Property.create({
     name: 'totalBudget',
     type: 'number',
-    defaultValue: () => 0,
     computation: Summation.create({
         record: DepartmentProjectRelation,
         attributeQuery: [['target', {
@@ -381,7 +513,6 @@ const departmentBudget = Property.create({
 const totalShippingCost = Property.create({
     name: 'totalShippingCost',
     type: 'number',
-    defaultValue: () => 0,
     computation: Summation.create({
         record: OrderShipmentRelation,
         attributeQuery: ['shippingFee']  // Relation's own property
@@ -428,7 +559,6 @@ const OrderItem = Entity.create({
 const orderTotal = Property.create({
     name: 'total',
     type: 'number',
-    defaultValue: () => 0,
     computation: Summation.create({
         record: OrderItemRelation,
         attributeQuery: [['target', {attributeQuery: ['finalPrice']}]]
@@ -457,7 +587,6 @@ Every.create(config: EveryConfig): EveryInstance
 const completedAllRequired = Property.create({
     name: 'completedAllRequired',
     type: 'boolean',
-    defaultValue: () => false,  // Must provide default value
     computation: Every.create({
         record: UserCourseRelation,
         callback: function(courseRelation) {
@@ -488,7 +617,6 @@ Any.create(config: AnyConfig): AnyInstance
 const hasPendingTasks = Property.create({
     name: 'hasPendingTasks',
     type: 'boolean',
-    defaultValue: () => false,  // Must provide default value
     computation: Any.create({
         record: UserTaskRelation,
         callback: function(taskRelation) {
@@ -713,7 +841,7 @@ const isExactHour = Dictionary.create({
 const userEntity = Entity.create({
     name: 'User',
     properties: [
-        Property.create({ name: 'lastLoginAt', type: 'timestamp' }),
+        Property.create({ name: 'lastLoginAt', type: 'number' }),
         Property.create({
             name: 'isRecentlyActive',
             type: 'boolean',
@@ -1145,7 +1273,6 @@ const userCountDict = Dictionary.create({
     name: 'userCount',
     type: 'number',
     collection: false,
-    defaultValue: () => 0,
     computation: Count.create({
         record: User
     })
@@ -1180,7 +1307,6 @@ const activeUsers = Dictionary.create({
     name: 'activeUsers',
     type: 'string',
     collection: true,
-    defaultValue: () => [],
     computation: Transform.create({
         record: User,
         attributeQuery: ['id', 'lastLoginTime'],
@@ -1228,15 +1354,20 @@ StateNode.create(config: StateNodeConfig): StateNodeInstance
 The `computeValue` function determines what value should be stored when the state machine transitions to this state:
 
 - **Function Signature**: 
-  - Sync: `(lastValue?: any) => any`
-  - Async: `async (lastValue?: any) => Promise<any>`
+  - Sync: `(lastValue?: any, event?: InteractionEvent) => any`
+  - Async: `async (lastValue?: any, event?: InteractionEvent) => Promise<any>`
   - `lastValue`: The previous value before the state transition (may be undefined for initial state)
+  - `event`: The interaction event that triggered the state transition (optional)
+    - Contains `user`, `payload`, `interactionName`, and other interaction metadata
+    - Only available when state transition is triggered by an interaction
+    - May be undefined for default state initialization
   - Returns: The new value to be stored (can be a Promise)
 - **Context**: Called with `this` bound to the Controller instance
 - **Async Support**: Yes, `computeValue` can be an async function
 - **Purpose**: 
   - Store state-specific data (e.g., timestamps, user IDs)
   - Transform or calculate values based on the previous state
+  - Access interaction context (user, payload) during state transitions
   - Return complex objects with multiple properties
   - Return `null` to indicate deletion (for entity/relation state machines)
   - Perform async operations like database queries or API calls
@@ -1319,6 +1450,55 @@ const verifiedState = StateNode.create({
         };
     }
 });
+
+// Using event parameter - access user information
+const approvedState = StateNode.create({
+    name: 'approved',
+    computeValue: (lastValue, event) => {
+        // Access user who triggered the approval
+        const approver = event?.user?.name || 'system';
+        return {
+            status: 'approved',
+            approvedAt: Date.now(),
+            approvedBy: approver
+        };
+    }
+});
+
+// Using event parameter - access payload data
+const updatedState = StateNode.create({
+    name: 'updated',
+    computeValue: (lastValue, event) => {
+        // Merge payload data with existing value
+        if (event?.payload) {
+            return {
+                ...lastValue,
+                ...event.payload.updates,
+                lastModifiedAt: Date.now(),
+                lastModifiedBy: event.user?.id
+            };
+        }
+        return lastValue;
+    }
+});
+
+// Using event parameter - conditional logic based on interaction
+const reviewedState = StateNode.create({
+    name: 'reviewed',
+    computeValue: (lastValue, event) => {
+        // Different behavior based on which interaction triggered the transition
+        if (event?.interactionName === 'approve') {
+            return { status: 'approved', reviewedAt: Date.now() };
+        } else if (event?.interactionName === 'reject') {
+            return { 
+                status: 'rejected', 
+                reviewedAt: Date.now(),
+                reason: event.payload?.reason || 'No reason provided'
+            };
+        }
+        return { status: 'pending_review' };
+    }
+});
 ```
 
 **Usage in StateMachine**
@@ -1378,7 +1558,7 @@ StateTransfer.create(config: StateTransferConfig): StateTransferInstance
 ```
 
 **Parameters**
-- `config.trigger` (any, required): Trigger for the state transfer (usually an Interaction)
+- `config.trigger` (Interaction, required): The Interaction instance that triggers this state transfer. Must be a reference to an Interaction created with `Interaction.create()`
 - `config.current` (StateNode, required): Current state node
 - `config.next` (StateNode, required): Next state node
 - `config.computeTarget` (function, optional): Function to compute which records should undergo this state transition. Returns the target record(s) that should be affected by this state change.

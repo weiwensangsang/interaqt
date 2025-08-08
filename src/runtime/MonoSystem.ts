@@ -193,10 +193,10 @@ export class MonoSystem implements System {
             return clonedRelation
         })
         
-        // FIXME 如果后续增加 filtered relation，那么也要修正。
+        // 处理 filtered entity 和 filtered relation
         for(let entity of entities) {
-            if (entity.sourceEntity) {
-                entity.sourceEntity = originalEntityToClonedEntity.get(entity.sourceEntity as EntityInstance)!
+            if (entity.baseEntity) {
+                entity.baseEntity = originalEntityToClonedEntity.get(entity.baseEntity as EntityInstance)!
             }
         }
         for(let relation of relations) {
@@ -206,20 +206,30 @@ export class MonoSystem implements System {
             if (relation.target) {
                 relation.target = originalEntityToClonedEntity.get(relation.target as EntityInstance) || originalRelationToClonedRelation.get(relation.target as RelationInstance)!
             }
+            // 处理 filtered relation 的 baseRelation
+            if (relation.baseRelation) {
+                relation.baseRelation = originalRelationToClonedRelation.get(relation.baseRelation as RelationInstance)!
+            }
         }
         
         states.forEach(({dataContext, state}) => {
             Object.entries(state).forEach(([stateName, stateItem]) => {
                 if (stateItem instanceof RecordBoundState) { 
-                    const entity = entities.find(entity => entity.name === stateItem.record)! || relations.find(entity => entity.name === stateItem.record)!
+                    // FIXME 因为一个 entity 可以有多个 filtered entity，所以未来还要考虑 state key 重名问题。
+                    let rootEntity: EntityInstance|RelationInstance = entities.find(entity => entity.name === stateItem.record)! || relations.find(entity => entity.name === stateItem.record)!
+
+                    // 考虑 filtered entity 和 filtered relation 的级联问题，这里要找到根
+                    while ((rootEntity as EntityInstance).baseEntity || (rootEntity as RelationInstance).baseRelation) {
+                        rootEntity = (rootEntity as EntityInstance).baseEntity || (rootEntity as RelationInstance).baseRelation!
+                    }
 
                     if (stateItem.defaultValue instanceof Property) {
-                        // TODO 特别注意这里改了 name
+                        // CAUTION 特别注意这里改了 name
                         stateItem.defaultValue.name = stateItem.key
-                        entity.properties.push(stateItem.defaultValue)
+                        rootEntity.properties.push(stateItem.defaultValue)
                     } else {
                         const defaultValuetype = typeof stateItem.defaultValue
-                        entity.properties.push(Property.create({
+                        rootEntity.properties.push(Property.create({
                             name: stateItem.key,
                             type: defaultValuetype,
                             // 应该系统定义

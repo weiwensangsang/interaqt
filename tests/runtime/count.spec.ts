@@ -123,7 +123,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'taskCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: ownsTaskRelation
         })
@@ -208,7 +207,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'taskCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: ownsTaskRelation
         })
@@ -236,7 +234,7 @@ describe('Count computed handle', () => {
     expect(initialUser1.taskCount).toBe(0);
     expect(initialUser2.taskCount).toBe(0);
     
-    // Create tasks for each user
+    // // Create tasks for each user
     await system.storage.create('Task', {title: 'User1 Task 1', owner: user1});
     await system.storage.create('Task', {title: 'User1 Task 2', owner: user1});
     await system.storage.create('Task', {title: 'User2 Task 1', owner: user2});
@@ -304,7 +302,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'groupCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: userGroupRelation
         })
@@ -316,7 +313,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'memberCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: userGroupRelation
         })
@@ -349,7 +345,7 @@ describe('Count computed handle', () => {
     
     // Create relationship between user1 and group1
     // This should trigger computation on both sides
-    await system.storage.addRelationByNameById('User_groups_members_Group', user1.id, group1.id, {});
+    await system.storage.addRelationByNameById('userGroup', user1.id, group1.id, {});
     
     // Check if counts are updated correctly
     const updatedUser1 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user1.id]}), undefined, ['*']);
@@ -359,8 +355,8 @@ describe('Count computed handle', () => {
     expect(updatedGroup1.memberCount).toBe(1);
     
     // Add more relationships
-    await system.storage.addRelationByNameById('User_groups_members_Group', user1.id, group2.id, {});
-    await system.storage.addRelationByNameById('User_groups_members_Group', user2.id, group1.id, {});
+    await system.storage.addRelationByNameById('userGroup', user1.id, group2.id, {});
+    await system.storage.addRelationByNameById('userGroup', user2.id, group1.id, {});
     
     // Check final counts
     const finalUser1 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user1.id]}), undefined, ['*']);
@@ -417,7 +413,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'bookCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: authorBookRelation
         })
@@ -428,7 +423,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'authorCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: authorBookRelation
         })
@@ -454,9 +448,9 @@ describe('Count computed handle', () => {
     const book2 = await system.storage.create('Book', {title: 'Book 2'});
     
     // Create relationships
-    const rel1 = await system.storage.addRelationByNameById('Author_books_authors_Book', author1.id, book1.id, {});
-    const rel2 = await system.storage.addRelationByNameById('Author_books_authors_Book', author1.id, book2.id, {});
-    const rel3 = await system.storage.addRelationByNameById('Author_books_authors_Book', author2.id, book1.id, {});
+    const rel1 = await system.storage.addRelationByNameById('authorBook', author1.id, book1.id, {});
+    const rel2 = await system.storage.addRelationByNameById('authorBook', author1.id, book2.id, {});
+    const rel3 = await system.storage.addRelationByNameById('authorBook', author2.id, book1.id, {});
     
     // Check counts before deletion
     const beforeAuthor1 = await system.storage.findOne('Author', BoolExp.atom({key: 'id', value: ['=', author1.id]}), undefined, ['*']);
@@ -466,7 +460,7 @@ describe('Count computed handle', () => {
     expect(beforeBook1.authorCount).toBe(2);
     
     // Delete a relationship
-    await system.storage.removeRelationByName('Author_books_authors_Book', BoolExp.atom({key: 'id', value: ['=', rel1.id]}));
+    await system.storage.removeRelationByName('authorBook', BoolExp.atom({key: 'id', value: ['=', rel1.id]}));
     
     // Check counts after deletion
     const afterAuthor1 = await system.storage.findOne('Author', BoolExp.atom({key: 'id', value: ['=', author1.id]}), undefined, ['*']);
@@ -594,7 +588,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'highPriorityIssueCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: projectIssueRelation,
           attributeQuery: [['target', {attributeQuery: ['priority']}]],
@@ -690,7 +683,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'vipPurchaseCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: customerPurchaseRelation,
           attributeQuery: [['target', {attributeQuery: ['amount']}]],
@@ -843,7 +835,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'followerCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: followRelation,
           direction: 'target' // Count as target (being followed)
@@ -852,7 +843,6 @@ describe('Count computed handle', () => {
       Property.create({
         name: 'followingCount',
         type: 'number',
-        defaultValue: () => 0,
         computation: Count.create({
           record: followRelation,
           direction: 'source' // Count as source (following others)
@@ -883,7 +873,7 @@ describe('Count computed handle', () => {
     expect(initialUser1.followingCount).toBe(0);
     
     // User1 follows User2
-    await system.storage.addRelationByNameById('User_following_followers_User', user1.id, user2.id, {});
+    await system.storage.addRelationByNameById('follows', user1.id, user2.id, {});
     
     // User1 should have 1 following, User2 should have 1 follower
     const updatedUser1 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user1.id]}), undefined, ['*']);
@@ -895,8 +885,8 @@ describe('Count computed handle', () => {
     expect(updatedUser2.followerCount).toBe(1);
     
     // User3 follows User1, User1 follows User3 (mutual)
-    await system.storage.addRelationByNameById('User_following_followers_User', user3.id, user1.id, {});
-    await system.storage.addRelationByNameById('User_following_followers_User', user1.id, user3.id, {});
+    await system.storage.addRelationByNameById('follows', user3.id, user1.id, {});
+    await system.storage.addRelationByNameById('follows', user1.id, user3.id, {});
     
     // Check final counts
     const finalUser1 = await system.storage.findOne('User', BoolExp.atom({key: 'id', value: ['=', user1.id]}), undefined, ['*']);
@@ -906,5 +896,427 @@ describe('Count computed handle', () => {
     expect(finalUser1.followerCount).toBe(1); // Followed by user3
     expect(finalUser3.followingCount).toBe(1); // Following user1
     expect(finalUser3.followerCount).toBe(1); // Followed by user1
+  });
+
+  test('should handle property level count with filtered relations', async () => {
+    // NOTE: This test demonstrates a current limitation in the framework:
+    // Filtered relations do not automatically trigger computations when their 
+    // source relations change. This is because the dependency tracking system
+    // doesn't fully support transitive dependencies through filtered relations.
+    // 
+    // Workaround: After creating relations, we manually force a recomputation
+    // by querying the entity with its computed properties.
+    // Define entities
+    const departmentEntity = Entity.create({
+      name: 'Department',
+      properties: [
+        Property.create({name: 'name', type: 'string'})
+      ]
+    });
+    
+    const employeeEntity = Entity.create({
+      name: 'Employee',
+      properties: [
+        Property.create({name: 'name', type: 'string'}),
+        Property.create({name: 'status', type: 'string'}) // active, inactive, terminated
+      ]
+    });
+    
+    // Create base relation with employment type property
+    const departmentEmployeeRelation = Relation.create({
+      source: departmentEntity,
+      sourceProperty: 'employees',
+      target: employeeEntity,
+      targetProperty: 'department',
+      name: 'DepartmentEmployee',
+      type: '1:n',
+      properties: [
+        Property.create({name: 'employmentType', type: 'string'}), // full-time, part-time, contract
+        Property.create({name: 'startDate', type: 'string'}),
+        Property.create({name: 'isActive', type: 'boolean', defaultValue: () => true})
+      ]
+    });
+    
+    // Create filtered relation for active full-time employees only
+    const activeFullTimeRelation = Relation.create({
+      name: 'ActiveFullTimeRelation',
+      baseRelation: departmentEmployeeRelation,
+      sourceProperty: 'activeFullTimeEmployees',
+      targetProperty: 'activeFullTimeDepartment',
+      matchExpression: MatchExp.atom({
+        key: 'employmentType',
+        value: ['=', 'full-time']
+      }).and({
+        key: 'isActive',
+        value: ['=', true]
+      })
+    });
+    
+    // Add computed properties to department entity
+    departmentEntity.properties.push(
+      Property.create({
+        name: 'totalEmployeeCount',
+        type: 'number',
+        computation: Count.create({
+          record: departmentEmployeeRelation
+        })
+      }),
+      Property.create({
+        name: 'activeFullTimeCount',
+        type: 'number',
+        collection: false,
+        computation: Count.create({
+          record: activeFullTimeRelation
+        })
+      })
+    );
+    
+    const entities = [departmentEntity, employeeEntity];
+    const relations = [departmentEmployeeRelation, activeFullTimeRelation];
+    // const relations = [departmentEmployeeRelation];
+    // Setup system and controller
+    const system = new MonoSystem();
+    system.conceptClass = KlassByName;
+    const controller = new Controller({
+        system: system,
+        entities: entities,
+        relations: relations,
+        activities: [],
+        interactions: []
+    });
+    await controller.setup(true);
+    
+    // Create test data
+    const engineering = await system.storage.create('Department', { name: 'Engineering' });
+    const hr = await system.storage.create('Department', { name: 'HR' });
+    
+    const emp1 = await system.storage.create('Employee', { 
+      name: 'Alice',
+      status: 'active'
+    });
+    const emp2 = await system.storage.create('Employee', { 
+      name: 'Bob',
+      status: 'active'
+    });
+    const emp3 = await system.storage.create('Employee', { 
+      name: 'Charlie',
+      status: 'inactive'
+    });
+    const emp4 = await system.storage.create('Employee', { 
+      name: 'David',
+      status: 'active'
+    });
+    
+    // Create relations with different employment types
+    await system.storage.addRelationByNameById('DepartmentEmployee', engineering.id, emp1.id, {employmentType: 'full-time', startDate: '2023-01-01', isActive: true});
+    await system.storage.addRelationByNameById('DepartmentEmployee', engineering.id, emp2.id, {employmentType: 'part-time', startDate: '2023-02-01', isActive: true});
+    await system.storage.addRelationByNameById('DepartmentEmployee', engineering.id, emp3.id, {employmentType: 'full-time', startDate: '2022-06-01', isActive: false});
+    await system.storage.addRelationByNameById('DepartmentEmployee', hr.id, emp4.id, {employmentType: 'full-time', startDate: '2023-03-01', isActive: true});
+
+
+    // Now the computations should run when we query the computed properties
+    // Check initial counts
+    const engDept1 = await system.storage.findOne('Department', 
+      BoolExp.atom({key: 'id', value: ['=', engineering.id]}), 
+      undefined, 
+      ['id', 'name', 'totalEmployeeCount', 'activeFullTimeCount', 'employees']
+
+    );
+
+
+    expect(engDept1.totalEmployeeCount).toBe(3); // All 3 employees in engineering
+    expect(engDept1.activeFullTimeCount).toBe(1); // Only emp1 is active full-time
+    
+   
+    
+    // Check HR department counts
+    const hrDept = await system.storage.findOne('Department', 
+      MatchExp.atom({key: 'id', value: ['=', hr.id]}), 
+      undefined, 
+      ['id', 'name', 'totalEmployeeCount', 'activeFullTimeCount']
+    );
+    
+    expect(hrDept.totalEmployeeCount).toBe(1); // David
+    expect(hrDept.activeFullTimeCount).toBe(1); // David is active full-time
+    
+    // Update Bob to full-time
+    const bobRelation = await system.storage.findOne('DepartmentEmployee',
+      MatchExp.atom({key: 'source.id', value: ['=', engineering.id]}).and({key: 'target.id', value: ['=', emp2.id]}),
+      undefined,
+      ['id']
+    );
+    
+    await system.storage.update('DepartmentEmployee',
+      MatchExp.atom({key: 'id', value: ['=', bobRelation.id]}),
+      { employmentType: 'full-time' }
+    );
+    
+    // Check updated counts
+    const engDept2 = await system.storage.findOne('Department', 
+      MatchExp.atom({key: 'id', value: ['=', engineering.id]}), 
+      undefined, 
+      ['id', 'name', 'totalEmployeeCount', 'activeFullTimeCount']
+    );
+    
+    expect(engDept2.totalEmployeeCount).toBe(3); // Unchanged
+    expect(engDept2.activeFullTimeCount).toBe(2); // Alice and Bob
+    
+    // Deactivate Alice's employment
+    const aliceRelation = await system.storage.findOne('DepartmentEmployee',
+      MatchExp.atom({key: 'source.id', value: ['=', engineering.id]}).and({key: 'target.id', value: ['=', emp1.id]}),
+      undefined,
+      ['id']
+    );
+    
+    await system.storage.update('DepartmentEmployee',
+      MatchExp.atom({key: 'id', value: ['=', aliceRelation.id]}),
+      { isActive: false }
+    );
+    
+    // Check counts after deactivation
+    const engDept3 = await system.storage.findOne('Department', 
+      MatchExp.atom({key: 'id', value: ['=', engineering.id]}), 
+      undefined, 
+      ['id', 'name', 'totalEmployeeCount', 'activeFullTimeCount']
+    );
+    
+    expect(engDept3.totalEmployeeCount).toBe(3); // Still 3 total
+    expect(engDept3.activeFullTimeCount).toBe(1); // Only Bob now
+    
+    // Delete Bob's employment relation
+    await system.storage.delete('DepartmentEmployee',
+      MatchExp.atom({key: 'id', value: ['=', bobRelation.id]})
+    );
+    
+    // Final check
+    const engDept4 = await system.storage.findOne('Department', 
+      MatchExp.atom({key: 'id', value: ['=', engineering.id]}), 
+      undefined, 
+      ['id', 'name', 'totalEmployeeCount', 'activeFullTimeCount']
+    );
+    
+    expect(engDept4.totalEmployeeCount).toBe(2); // Alice and Charlie
+    expect(engDept4.activeFullTimeCount).toBe(0); // None are active full-time
+  });
+  
+  test('should handle property level count with filtered relations - Store Inventory Example', async () => {
+    // NOTE: This test demonstrates a current limitation in the framework:
+    // Filtered relations do not automatically trigger computations when their 
+    // source relations change. This is because the dependency tracking system
+    // doesn't fully support transitive dependencies through filtered relations.
+    // Define entities
+    const storeEntity = Entity.create({
+      name: 'Store',
+      properties: [
+        Property.create({name: 'name', type: 'string'}),
+        Property.create({name: 'location', type: 'string'})
+      ]
+    });
+    
+    const productEntity = Entity.create({
+      name: 'Product',
+      properties: [
+        Property.create({name: 'name', type: 'string'}),
+        Property.create({name: 'category', type: 'string'}),
+        Property.create({name: 'price', type: 'number'})
+      ]
+    });
+    
+    // Create base relation with inventory properties
+    const storeProductRelation = Relation.create({
+      source: storeEntity,
+      sourceProperty: 'products',
+      target: productEntity,
+      targetProperty: 'stores',
+      name: 'StoreProduct',
+      type: 'n:n',
+      properties: [
+        Property.create({name: 'quantity', type: 'number'}),
+        Property.create({name: 'stockStatus', type: 'string'}), // in-stock, low-stock, out-of-stock
+        Property.create({name: 'lastRestocked', type: 'string'})
+      ]
+    });
+    
+    // Create filtered relations for different stock statuses
+    const inStockRelation = Relation.create({
+      name: 'InStockRelation',
+      baseRelation: storeProductRelation,
+      sourceProperty: 'inStockProducts',
+      targetProperty: 'inStockStores',
+      matchExpression: MatchExp.atom({
+        key: 'stockStatus',
+        value: ['=', 'in-stock']
+      })
+    });
+    
+    const lowStockRelation = Relation.create({
+      name: 'LowStockRelation',
+      baseRelation: storeProductRelation,
+      sourceProperty: 'lowStockProducts',
+      targetProperty: 'lowStockStores',
+      matchExpression: MatchExp.atom({
+        key: 'stockStatus',
+        value: ['=', 'low-stock']
+      })
+    });
+    
+    const outOfStockRelation = Relation.create({
+      name: 'OutOfStockRelation',
+      baseRelation: storeProductRelation,
+      sourceProperty: 'outOfStockProducts',
+      targetProperty: 'outOfStockStores',
+      matchExpression: MatchExp.atom({
+        key: 'stockStatus',
+        value: ['=', 'out-of-stock']
+      })
+    });
+    
+    // Add computed properties to store entity
+    storeEntity.properties.push(
+      Property.create({
+        name: 'totalProductCount',
+        type: 'number',
+        collection: false,
+        computation: Count.create({
+          record: storeProductRelation
+        })
+      }),
+      Property.create({
+        name: 'inStockCount',
+        type: 'number',
+        collection: false,
+        computation: Count.create({
+          record: inStockRelation
+        })
+      }),
+      Property.create({
+        name: 'lowStockCount',
+        type: 'number',
+        collection: false,
+        computation: Count.create({
+          record: lowStockRelation
+        })
+      }),
+      Property.create({
+        name: 'outOfStockCount',
+        type: 'number',
+        collection: false,
+        computation: Count.create({
+          record: outOfStockRelation
+        })
+      })
+    );
+    
+    const entities = [storeEntity, productEntity];
+    const relations = [storeProductRelation, inStockRelation, lowStockRelation, outOfStockRelation];
+    
+    // Setup system and controller
+    const system = new MonoSystem();
+    system.conceptClass = KlassByName;
+    const controller = new Controller({
+        system: system,
+        entities: entities,
+        relations: relations,
+        activities: [],
+        interactions: []
+    });
+    await controller.setup(true);
+    
+    // Create test data
+    const store1 = await system.storage.create('Store', { 
+      name: 'Downtown Store',
+      location: 'City Center'
+    });
+    
+    const prod1 = await system.storage.create('Product', { 
+      name: 'Laptop',
+      category: 'Electronics',
+      price: 999
+    });
+    
+    const prod2 = await system.storage.create('Product', { 
+      name: 'Mouse',
+      category: 'Electronics',
+      price: 29
+    });
+    
+    const prod3 = await system.storage.create('Product', { 
+      name: 'Keyboard',
+      category: 'Electronics',
+      price: 79
+    });
+    
+    const prod4 = await system.storage.create('Product', { 
+      name: 'Monitor',
+      category: 'Electronics',
+      price: 299
+    });
+    
+    // Create inventory relations with different stock statuses
+    await system.storage.create('StoreProduct', {
+      source: store1,
+      target: prod1,
+      quantity: 15,
+      stockStatus: 'in-stock',
+      lastRestocked: '2024-01-15'
+    });
+    
+    await system.storage.create('StoreProduct', {
+      source: store1,
+      target: prod2,
+      quantity: 3,
+      stockStatus: 'low-stock',
+      lastRestocked: '2024-01-10'
+    });
+    
+    await system.storage.create('StoreProduct', {
+      source: store1,
+      target: prod3,
+      quantity: 0,
+      stockStatus: 'out-of-stock',
+      lastRestocked: '2023-12-20'
+    });
+    
+    await system.storage.create('StoreProduct', {
+      source: store1,
+      target: prod4,
+      quantity: 8,
+      stockStatus: 'in-stock',
+      lastRestocked: '2024-01-12'
+    });
+    
+
+    
+    // Check computed counts
+    const storeData = await system.storage.findOne('Store', 
+      BoolExp.atom({key: 'id', value: ['=', store1.id]}), 
+      undefined, 
+      ['id', 'name', 'totalProductCount', 'inStockCount', 'lowStockCount', 'outOfStockCount']
+    );
+    
+    expect(storeData.totalProductCount).toBe(4);
+    // Now filtered relations should work correctly
+    expect(storeData.inStockCount).toBe(2);    // prod1 and prod4 are in-stock
+    expect(storeData.lowStockCount).toBe(1);   // prod2 is low-stock
+    expect(storeData.outOfStockCount).toBe(1); // prod3 is out-of-stock
+    
+    // Test dynamic updates: Change stock status
+    await system.storage.update('StoreProduct',
+      MatchExp.atom({key: 'source.id', value: ['=', store1.id]})
+        .and({key: 'target.id', value: ['=', prod2.id]}),
+      { stockStatus: 'in-stock', quantity: 20 }
+    );
+    
+    // Check updated counts
+    const storeDataUpdated = await system.storage.findOne('Store', 
+      BoolExp.atom({key: 'id', value: ['=', store1.id]}), 
+      undefined, 
+      ['id', 'name', 'inStockCount', 'lowStockCount', 'outOfStockCount']
+    );
+    
+    // After update: prod2 changed from low-stock to in-stock
+    expect(storeDataUpdated.inStockCount).toBe(3);    // prod1, prod2, and prod4 are in-stock
+    expect(storeDataUpdated.lowStockCount).toBe(0);   // no products are low-stock
+    expect(storeDataUpdated.outOfStockCount).toBe(1); // prod3 is still out-of-stock
   });
 }); 

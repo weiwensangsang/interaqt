@@ -3,7 +3,7 @@ import {assert} from "../utils.js";
 import {EntityToTableMap, LinkMapItem, RecordMapItem} from "./EntityToTableMap.js";
 
 export class LinkInfo {
-    constructor(public name: string, public data: LinkMapItem, public map: EntityToTableMap) {
+    constructor(public name: string, public data: LinkMapItem, public map: EntityToTableMap, public isFromSource: boolean = true) {
     }
 
     get isManyToOne() {
@@ -103,10 +103,36 @@ export class LinkInfo {
         return this.data.sourceRecord === recordName && this.data.sourceProperty === attribute
     }
 
-
-
     getAttributeName(recordName: string, attribute: string) {
         assert(!!recordName && !!attribute, `${recordName}, ${attribute} cannot be empty`)
         return this.isRelationSource(recordName, attribute) ? ['source', 'target'] : ['target', 'source']
+    }
+
+    isFilteredRelation() {
+        return this.data.isFilteredRelation
+    }
+
+    getBaseLinkInfo() {
+        assert(this.isFilteredRelation(), `only filtered relation can get base link info`)
+        const baseLinkName = this.data.baseLinkName!
+        return new LinkInfo(baseLinkName, this.map.data.links[baseLinkName], this.map)
+    }
+    
+    getMatchExpression() {
+        if (this.isFilteredRelation()) {
+            return this.data.matchExpression
+        } else {
+            throw new Error(`${this.name} is not a filtered relation`)
+        }
+    }
+
+    getResolvedMatchExpression() {
+        assert(this.isFilteredRelation(), `only filtered relation can get resolved match expression`)
+        return this.data.resolvedMatchExpression
+    }
+
+    getResolvedBaseRecordName() {
+        assert(this.isFilteredRelation(), `only filtered relation can get resolved record name`)
+        return this.data.resolvedBaseRecordName
     }
 }

@@ -95,12 +95,12 @@ describe("Core Domain Classes Refactored", () => {
       
       const filteredEntity = Entity.create({
         name: "ActiveUser",
-        sourceEntity: sourceEntity,
-        filterCondition: { status: "active" }
+        baseEntity: sourceEntity,
+        matchExpression: { status: "active" }
       });
 
-      expect(filteredEntity.sourceEntity).toBe(sourceEntity);
-      expect(filteredEntity.filterCondition).toEqual({ status: "active" });
+      expect(filteredEntity.baseEntity).toBe(sourceEntity);
+      expect(filteredEntity.matchExpression).toEqual({ status: "active" });
     });
 
     test("should stringify and parse entity", () => {
@@ -170,7 +170,7 @@ describe("Core Domain Classes Refactored", () => {
         type: "1:n"
       });
 
-      expect(relation.name).toBe("User_posts_author_Post");
+      expect(relation.name).toBe("UserPostRelation");
     });
 
     test("should create relation with properties", () => {

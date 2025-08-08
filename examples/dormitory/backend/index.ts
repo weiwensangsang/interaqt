@@ -1,211 +1,19 @@
-import { 
+import {
   Entity, Property, Relation, 
-  Count, Summation, WeightedSummation, Every, Any, Transform, 
-  StateMachine, StateNode, StateTransfer, RealTime, Expression, 
-  Dictionary, Custom, MatchExp,
-  Interaction, Action, Payload, PayloadItem, InteractionEventEntity
-} from 'interaqt';
+  Interaction, Action, Payload, PayloadItem,
+  Transform, StateMachine, StateNode, StateTransfer, 
+  Count, Summation,
+  InteractionEventEntity, Controller, MonoSystem, PGLiteDB,
+  Activity, Transfer,
+  MatchExp,
+  BoolExp
+} from 'interaqt'
 
-// ========== State Nodes Declaration ==========
-// Declare all state nodes before use in StateMachines
+// ====================
+// 1. ENTITIES
+// ====================
 
-// User role states
-const studentRoleState = StateNode.create({ name: 'student' });
-const dormHeadRoleState = StateNode.create({ name: 'dormHead' });
-const adminRoleState = StateNode.create({ name: 'admin' });
-
-// User status states
-const activeUserState = StateNode.create({ name: 'active' });
-const kickedUserState = StateNode.create({ name: 'kicked' });
-const pendingKickUserState = StateNode.create({ name: 'pending_kick' });
-
-// Dormitory status states
-const activeDormitoryState = StateNode.create({ name: 'active' });
-const inactiveDormitoryState = StateNode.create({ name: 'inactive' });
-
-// Bed status states
-const availableBedState = StateNode.create({ name: 'available' });
-const occupiedBedState = StateNode.create({ name: 'occupied' });
-
-// ScoreRecord status states
-const activeScoreState = StateNode.create({ name: 'active' });
-const revokedScoreState = StateNode.create({ 
-  name: 'revoked',
-  computeValue: (event: any) => ({
-    revokedAt: Math.floor(Date.now()/1000),
-    revokeReason: event?.payload?.reason || 'No reason provided'
-  })
-});
-
-// KickRequest status states
-const pendingKickRequestState = StateNode.create({ name: 'pending' });
-const approvedKickRequestState = StateNode.create({ 
-  name: 'approved',
-  computeValue: (event: any) => ({
-    processedAt: Math.floor(Date.now()/1000),
-    adminComment: event?.payload?.comment || ''
-  })
-});
-const rejectedKickRequestState = StateNode.create({ 
-  name: 'rejected',
-  computeValue: (event: any) => ({
-    processedAt: Math.floor(Date.now()/1000),
-    adminComment: event?.payload?.comment || ''
-  })
-});
-
-// ScoreRule status states
-const activeRuleState = StateNode.create({ name: 'true' });
-const inactiveRuleState = StateNode.create({ name: 'false' });
-
-// Relation status states
-const activeRelationState = StateNode.create({ name: 'active' });
-const inactiveRelationState = StateNode.create({ name: 'inactive' });
-
-// ========== Interactions ==========
-// Define interactions first so they can be referenced in StateMachines
-
-export const CreateDormitory = Interaction.create({
-  name: 'CreateDormitory',
-  action: Action.create({ name: 'createDormitory' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'name', required: true }),
-      PayloadItem.create({ name: 'capacity', required: true })
-    ]
-  })
-});
-
-export const AssignDormHead = Interaction.create({
-  name: 'AssignDormHead',
-  action: Action.create({ name: 'assignDormHead' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'userId', required: true }),
-      PayloadItem.create({ name: 'dormitoryId', required: true })
-    ]
-  })
-});
-
-export const RemoveDormHead = Interaction.create({
-  name: 'RemoveDormHead',
-  action: Action.create({ name: 'removeDormHead' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'userId', required: true })
-    ]
-  })
-});
-
-export const AssignUserToDormitory = Interaction.create({
-  name: 'AssignUserToDormitory',
-  action: Action.create({ name: 'assignUserToDormitory' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'userId', required: true }),
-      PayloadItem.create({ name: 'dormitoryId', required: true }),
-      PayloadItem.create({ name: 'bedNumber', required: true })
-    ]
-  })
-});
-
-export const RemoveUserFromDormitory = Interaction.create({
-  name: 'RemoveUserFromDormitory',
-  action: Action.create({ name: 'removeUserFromDormitory' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'userId', required: true })
-    ]
-  })
-});
-
-export const CreateScoreRecord = Interaction.create({
-  name: 'CreateScoreRecord',
-  action: Action.create({ name: 'createScoreRecord' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'targetUserId', required: true }),
-      PayloadItem.create({ name: 'ruleId', required: true }),
-      PayloadItem.create({ name: 'reason', required: true }),
-      PayloadItem.create({ name: 'score', required: true })
-    ]
-  })
-});
-
-export const RevokeScoreRecord = Interaction.create({
-  name: 'RevokeScoreRecord',
-  action: Action.create({ name: 'revokeScoreRecord' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'recordId', required: true }),
-      PayloadItem.create({ name: 'reason', required: true })
-    ]
-  })
-});
-
-export const CreateKickRequest = Interaction.create({
-  name: 'CreateKickRequest',
-  action: Action.create({ name: 'createKickRequest' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'targetUserId', required: true }),
-      PayloadItem.create({ name: 'reason', required: true })
-    ]
-  })
-});
-
-export const ProcessKickRequest = Interaction.create({
-  name: 'ProcessKickRequest',
-  action: Action.create({ name: 'processKickRequest' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'requestId', required: true }),
-      PayloadItem.create({ name: 'action', required: true }),
-      PayloadItem.create({ name: 'comment' })
-    ]
-  })
-});
-
-export const CreateScoreRule = Interaction.create({
-  name: 'CreateScoreRule',
-  action: Action.create({ name: 'createScoreRule' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'name', required: true }),
-      PayloadItem.create({ name: 'description', required: true }),
-      PayloadItem.create({ name: 'score', required: true }),
-      PayloadItem.create({ name: 'category', required: true })
-    ]
-  })
-});
-
-export const UpdateScoreRule = Interaction.create({
-  name: 'UpdateScoreRule',
-  action: Action.create({ name: 'updateScoreRule' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'ruleId', required: true }),
-      PayloadItem.create({ name: 'name' }),
-      PayloadItem.create({ name: 'description' }),
-      PayloadItem.create({ name: 'score' }),
-      PayloadItem.create({ name: 'category' }),
-      PayloadItem.create({ name: 'isActive' })
-    ]
-  })
-});
-
-export const DeactivateScoreRule = Interaction.create({
-  name: 'DeactivateScoreRule',
-  action: Action.create({ name: 'deactivateScoreRule' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'ruleId', required: true })
-    ]
-  })
-});
-
-// ========== Entity Definitions ==========
-
+// User Entity
 export const User = Entity.create({
   name: 'User',
   properties: [
@@ -218,73 +26,49 @@ export const User = Entity.create({
       type: 'string' 
     }),
     Property.create({ 
+      name: 'phone', 
+      type: 'string' 
+    }),
+    Property.create({ 
       name: 'role', 
       type: 'string',
-      defaultValue: () => 'student',
-      computation: StateMachine.create({
-        states: [studentRoleState, dormHeadRoleState, adminRoleState],
-        defaultState: studentRoleState,
-        transfers: [
-          StateTransfer.create({
-            trigger: AssignDormHead,
-            current: studentRoleState,
-            next: dormHeadRoleState,
-            computeTarget: (event: any) => ({ id: event.payload.userId })
-          }),
-          StateTransfer.create({
-            trigger: RemoveDormHead, 
-            current: dormHeadRoleState,
-            next: studentRoleState,
-            computeTarget: (event: any) => ({ id: event.payload.userId })
-          })
-        ]
-      })
+      defaultValue: () => 'student'
     }),
     Property.create({ 
       name: 'status', 
       type: 'string',
-      defaultValue: () => 'active',
-      computation: StateMachine.create({
-        states: [activeUserState, kickedUserState, pendingKickUserState],
-        defaultState: activeUserState,
-        transfers: [
-          StateTransfer.create({
-            trigger: ProcessKickRequest,
-            current: activeUserState,
-            next: kickedUserState,
-            computeTarget: async function(this: any, event: any) {
-              if (event.payload.action === 'approve') {
-                // Find the kick request to get target user
-                const kickRequest = await this.system.storage.findOne('KickRequest',
-                  MatchExp.atom({
-                    key: 'id',
-                    value: ['=', event.payload.requestId]
-                  }),
-                  undefined,
-                  ['*']
-                );
-                return kickRequest?.target;
-              }
-              return null;
-            }
-          })
-        ]
-      })
+      defaultValue: () => 'active'
     }),
     Property.create({ 
       name: 'createdAt', 
       type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
+      defaultValue: () => Math.floor(Date.now() / 1000)
     }),
-    Property.create({ 
-      name: 'totalScore', 
+    Property.create({
+      name: 'totalPenaltyPoints',
       type: 'number',
       defaultValue: () => 0
-      // Will implement computation later after fixing basic issues
     })
-  ]
-});
+  ],
+  computation: Transform.create({
+    record: InteractionEventEntity,
+    callback: (event) => {
+      if (event.interactionName === 'CreateUser') {
+        return {
+          name: event.payload.name,
+          email: event.payload.email,
+          phone: event.payload.phone,
+          role: event.payload.role,
+          status: 'active',
+          createdAt: Math.floor(Date.now() / 1000)
+        }
+      }
+      return null
+    }
+  })
+})
 
+// Dormitory Entity  
 export const Dormitory = Entity.create({
   name: 'Dormitory',
   properties: [
@@ -293,305 +77,108 @@ export const Dormitory = Entity.create({
       type: 'string' 
     }),
     Property.create({ 
-      name: 'capacity', 
+      name: 'bedCount', 
       type: 'number' 
     }),
-    Property.create({ 
-      name: 'status', 
-      type: 'string',
-      defaultValue: () => 'active',
-      computation: StateMachine.create({
-        states: [activeDormitoryState, inactiveDormitoryState],
-        defaultState: activeDormitoryState,
-        transfers: []
-      })
+    Property.create({
+      name: 'availableBedCount',
+      type: 'number',
+      defaultValue: () => 0
     }),
     Property.create({ 
       name: 'createdAt', 
       type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
-    }),
-    Property.create({ 
-      name: 'currentOccupancy', 
-      type: 'number',
-      defaultValue: () => 0
-      // Will implement computation later
+      defaultValue: () => Math.floor(Date.now() / 1000)
     })
   ],
   computation: Transform.create({
     record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
+    callback: (event) => {
       if (event.interactionName === 'CreateDormitory') {
         return {
           name: event.payload.name,
-          capacity: event.payload.capacity
-        };
+          bedCount: event.payload.bedCount,
+          createdAt: Math.floor(Date.now() / 1000)
+        }
       }
-      return null;
+      return null
     }
   })
-});
+})
 
+// Bed Entity
 export const Bed = Entity.create({
   name: 'Bed',
   properties: [
     Property.create({ 
       name: 'bedNumber', 
-      type: 'number' 
+      type: 'string' 
     }),
     Property.create({ 
       name: 'status', 
       type: 'string',
-      defaultValue: () => 'available',
-      computation: StateMachine.create({
-        states: [availableBedState, occupiedBedState],
-        defaultState: availableBedState,
-        transfers: [
-          StateTransfer.create({
-            trigger: AssignUserToDormitory,
-            current: availableBedState,
-            next: occupiedBedState,
-            computeTarget: async function(this: any, event: any) {
-              // Find the bed being assigned
-              const dormitory = await this.system.storage.findOne('Dormitory',
-                MatchExp.atom({
-                  key: 'id',
-                  value: ['=', event.payload.dormitoryId]
-                }),
-                undefined,
-                ['*']
-              );
-              if (dormitory) {
-                const bed = await this.system.storage.findOneRelationByName('DormitoryBed',
-                  MatchExp.atom({
-                    key: 'source.id',
-                    value: ['=', dormitory.id]
-                  }).and(MatchExp.atom({
-                    key: 'target.bedNumber',
-                    value: ['=', event.payload.bedNumber]
-                  })),
-                  undefined,
-                  ['target']
-                );
-                return bed?.target;
-              }
-              return null;
-            }
-          }),
-          StateTransfer.create({
-            trigger: RemoveUserFromDormitory,
-            current: occupiedBedState,
-            next: availableBedState,
-            computeTarget: async function(this: any, event: any) {
-              // Find the bed to release
-              const userBedRelation = await this.system.storage.findOneRelationByName('UserBed',
-                MatchExp.atom({
-                  key: 'source.id',
-                  value: ['=', event.payload.userId]
-                }),
-                undefined,
-                ['target']
-              );
-              return userBedRelation?.target;
-            }
-          }),
-          StateTransfer.create({
-            trigger: ProcessKickRequest,
-            current: occupiedBedState,
-            next: availableBedState,
-            computeTarget: async function(this: any, event: any) {
-              if (event.payload.action === 'approve') {
-                const kickRequest = await this.system.storage.findOne('KickRequest',
-                  MatchExp.atom({
-                    key: 'id',
-                    value: ['=', event.payload.requestId]
-                  }),
-                  undefined,
-                  ['*']
-                );
-                if (kickRequest) {
-                  const userBedRelation = await this.system.storage.findOneRelationByName('UserBed',
-                    MatchExp.atom({
-                      key: 'source.id',
-                      value: ['=', kickRequest.target.id]
-                    }),
-                    undefined,
-                    ['target']
-                  );
-                  return userBedRelation?.target;
-                }
-              }
-              return null;
-            }
-          })
-        ]
-      })
+      defaultValue: () => 'available'
     }),
     Property.create({ 
       name: 'createdAt', 
       type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
+      defaultValue: () => Math.floor(Date.now() / 1000)
     })
   ],
   computation: Transform.create({
     record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
+    callback: (event) => {
       if (event.interactionName === 'CreateDormitory') {
-        // Create beds for the dormitory
-        const beds = [];
-        for (let i = 1; i <= event.payload.capacity; i++) {
+        const beds = []
+        for (let i = 1; i <= event.payload.bedCount; i++) {
           beds.push({
-            bedNumber: i
-          });
+            bedNumber: `床位${i}`,
+            status: 'available',
+            createdAt: Math.floor(Date.now() / 1000)
+          })
         }
-        return beds;
+        return beds // Return array to create multiple beds
       }
-      return null;
+      return null
     }
   })
-});
+})
 
-export const ScoreRecord = Entity.create({
-  name: 'ScoreRecord',
+// UserBedAssignment Entity
+export const UserBedAssignment = Entity.create({
+  name: 'UserBedAssignment',
   properties: [
     Property.create({ 
-      name: 'reason', 
-      type: 'string' 
-    }),
-    Property.create({ 
-      name: 'score', 
-      type: 'number' 
-    }),
-    Property.create({ 
-      name: 'createdAt', 
+      name: 'assignedAt', 
       type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
+      defaultValue: () => Math.floor(Date.now() / 1000)
     }),
     Property.create({ 
       name: 'status', 
       type: 'string',
-      defaultValue: () => 'active',
-      computation: StateMachine.create({
-        states: [activeScoreState, revokedScoreState],
-        defaultState: activeScoreState,
-        transfers: [
-          StateTransfer.create({
-            trigger: RevokeScoreRecord,
-            current: activeScoreState,
-            next: revokedScoreState,
-            computeTarget: (event: any) => ({ id: event.payload.recordId })
-          })
-        ]
-      })
-    }),
-    Property.create({ 
-      name: 'revokedAt', 
-      type: 'number',
-      defaultValue: () => 0
-    }),
-    Property.create({ 
-      name: 'revokeReason', 
-      type: 'string',
-      defaultValue: () => ''
+      defaultValue: () => 'active'
     })
   ],
   computation: Transform.create({
     record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
-      if (event.interactionName === 'CreateScoreRecord') {
+    callback: (event) => {
+      if (event.interactionName === 'AssignUserToBed') {
         return {
-          reason: event.payload.reason,
-          score: event.payload.score,
-          user: { id: event.payload.targetUserId },
-          operator: event.user,
-          rule: { id: event.payload.ruleId }
-        };
+          assignedAt: Math.floor(Date.now() / 1000),
+          status: 'active'
+        }
       }
-      return null;
+      return null
     }
   })
-});
+})
 
-export const KickRequest = Entity.create({
-  name: 'KickRequest',
+// BehaviorRecord Entity
+export const BehaviorRecord = Entity.create({
+  name: 'BehaviorRecord',
   properties: [
     Property.create({ 
-      name: 'reason', 
-      type: 'string' 
-    }),
-    Property.create({ 
-      name: 'requestedAt', 
-      type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
-    }),
-    Property.create({ 
-      name: 'status', 
-      type: 'string',
-      defaultValue: () => 'pending',
-      computation: StateMachine.create({
-        states: [pendingKickRequestState, approvedKickRequestState, rejectedKickRequestState],
-        defaultState: pendingKickRequestState,
-        transfers: [
-          StateTransfer.create({
-            trigger: ProcessKickRequest,
-            current: pendingKickRequestState,
-            next: approvedKickRequestState,
-            computeTarget: (event: any) => {
-              if (event.payload.action === 'approve') {
-                return { id: event.payload.requestId };
-              }
-              return null;
-            }
-          }),
-          StateTransfer.create({
-            trigger: ProcessKickRequest,
-            current: pendingKickRequestState,
-            next: rejectedKickRequestState,
-            computeTarget: (event: any) => {
-              if (event.payload.action === 'reject') {
-                return { id: event.payload.requestId };
-              }
-              return null;
-            }
-          })
-        ]
-      })
-    }),
-    Property.create({ 
-      name: 'processedAt', 
-      type: 'number',
-      defaultValue: () => 0
-    }),
-    Property.create({ 
-      name: 'adminComment', 
-      type: 'string',
-      defaultValue: () => ''
-    })
-  ],
-  computation: Transform.create({
-    record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
-      if (event.interactionName === 'CreateKickRequest') {
-        return {
-          reason: event.payload.reason,
-          requester: event.user,
-          target: { id: event.payload.targetUserId }
-        };
-      }
-      return null;
-    }
-  })
-});
-
-export const ScoreRule = Entity.create({
-  name: 'ScoreRule',
-  properties: [
-    Property.create({ 
-      name: 'name', 
+      name: 'behaviorType', 
       type: 'string' 
     }),
     Property.create({ 
@@ -599,468 +186,317 @@ export const ScoreRule = Entity.create({
       type: 'string' 
     }),
     Property.create({ 
-      name: 'score', 
+      name: 'penaltyPoints', 
       type: 'number' 
     }),
     Property.create({ 
-      name: 'category', 
-      type: 'string' 
-    }),
-    Property.create({ 
-      name: 'isActive', 
-      type: 'boolean',
-      defaultValue: () => true,
-      computation: StateMachine.create({
-        states: [activeRuleState, inactiveRuleState],
-        defaultState: activeRuleState,
-        transfers: [
-          StateTransfer.create({
-            trigger: DeactivateScoreRule,
-            current: activeRuleState,
-            next: inactiveRuleState,
-            computeTarget: (event: any) => ({ id: event.payload.ruleId })
-          })
-        ]
-      })
-    }),
-    Property.create({ 
-      name: 'createdAt', 
+      name: 'recordedAt', 
       type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
+      defaultValue: () => Math.floor(Date.now() / 1000)
     })
   ],
   computation: Transform.create({
     record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
-      if (event.interactionName === 'CreateScoreRule') {
+    callback: (event) => {
+      if (event.interactionName === 'RecordBehavior') {
         return {
-          name: event.payload.name,
+          behaviorType: event.payload.behaviorType,
           description: event.payload.description,
-          score: event.payload.score,
-          category: event.payload.category
-        };
+          penaltyPoints: event.payload.penaltyPoints,
+          recordedAt: Math.floor(Date.now() / 1000)
+        }
       }
-      return null;
+      return null
     }
   })
-});
+})
 
-// ========== Relation Definitions ==========
+// ExpulsionRequest Entity
+export const ExpulsionRequest = Entity.create({
+  name: 'ExpulsionRequest',
+  properties: [
+    Property.create({ 
+      name: 'reason', 
+      type: 'string' 
+    }),
+    Property.create({ 
+      name: 'status', 
+      type: 'string',
+      defaultValue: () => 'pending'
+    }),
+    Property.create({ 
+      name: 'requestedAt', 
+      type: 'number',
+      defaultValue: () => Math.floor(Date.now() / 1000)
+    }),
+    Property.create({ 
+      name: 'processedAt', 
+      type: 'number'
+    }),
+    Property.create({ 
+      name: 'adminNotes', 
+      type: 'string'
+    })
+  ],
+  computation: Transform.create({
+    record: InteractionEventEntity,
+    callback: (event) => {
+      if (event.interactionName === 'CreateExpulsionRequest') {
+        return {
+          reason: event.payload.reason,
+          status: 'pending',
+          requestedAt: Math.floor(Date.now() / 1000)
+        }
+      }
+      return null
+    }
+  })
+})
 
-export const UserDormitoryRelation = Relation.create({
+// ====================
+// 2. RELATIONS  
+// ====================
+
+// User-Dormitory Head Relation
+export const UserDormitoryHeadRelation = Relation.create({
   source: User,
-  sourceProperty: 'dormitory',
+  sourceProperty: 'managedDormitory',
   target: Dormitory,
-  targetProperty: 'residents',
+  targetProperty: 'dormHead',
   type: 'n:1',
   properties: [
     Property.create({ 
       name: 'assignedAt', 
       type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
-    }),
-    Property.create({ 
-      name: 'status', 
-      type: 'string',
-      defaultValue: () => 'active',
-      computation: StateMachine.create({
-        states: [activeRelationState, inactiveRelationState],
-        defaultState: activeRelationState,
-        transfers: [
-          StateTransfer.create({
-            trigger: RemoveUserFromDormitory,
-            current: activeRelationState,
-            next: inactiveRelationState,
-            computeTarget: async function(this: any, event: any) {
-              const relation = await this.system.storage.findOneRelationByName('UserDormitory',
-                MatchExp.atom({
-                  key: 'source.id',
-                  value: ['=', event.payload.userId]
-                }),
-                undefined,
-                ['id']
-              );
-              return relation;
-            }
-          }),
-          StateTransfer.create({
-            trigger: ProcessKickRequest,
-            current: activeRelationState,
-            next: inactiveRelationState,
-            computeTarget: async function(this: any, event: any) {
-              if (event.payload.action === 'approve') {
-                const kickRequest = await this.system.storage.findOne('KickRequest',
-                  MatchExp.atom({
-                    key: 'id',
-                    value: ['=', event.payload.requestId]
-                  }),
-                  undefined,
-                  ['*']
-                );
-                if (kickRequest) {
-                  const relation = await this.system.storage.findOneRelationByName('UserDormitory',
-                    MatchExp.atom({
-                      key: 'source.id',
-                      value: ['=', kickRequest.target.id]
-                    }),
-                    undefined,
-                    ['id']
-                  );
-                  return relation;
-                }
-              }
-              return null;
-            }
-          })
-        ]
-      })
+      defaultValue: () => Math.floor(Date.now() / 1000)
     })
-  ],
-  computation: Transform.create({
-    record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
-      if (event.interactionName === 'AssignUserToDormitory') {
-        return {
-          source: { id: event.payload.userId },
-          target: { id: event.payload.dormitoryId },
-          status: 'active',
-          assignedAt: Math.floor(Date.now()/1000)
-        };
-      }
-      return null;
-    }
-  })
-});
+  ]
+})
 
-export const UserBedRelation = Relation.create({
-  source: User,
-  sourceProperty: 'bed',
-  target: Bed,
-  targetProperty: 'occupant',
-  type: '1:1',
-  properties: [
-    Property.create({ 
-      name: 'assignedAt', 
-      type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
-    }),
-    Property.create({ 
-      name: 'status', 
-      type: 'string',
-      defaultValue: () => 'active',
-      computation: StateMachine.create({
-        states: [activeRelationState, inactiveRelationState],
-        defaultState: activeRelationState,
-        transfers: [
-          StateTransfer.create({
-            trigger: RemoveUserFromDormitory,
-            current: activeRelationState,
-            next: inactiveRelationState,
-            computeTarget: async function(this: any, event: any) {
-              const relation = await this.system.storage.findOneRelationByName('UserBed',
-                MatchExp.atom({
-                  key: 'source.id',
-                  value: ['=', event.payload.userId]
-                }),
-                undefined,
-                ['id']
-              );
-              return relation;
-            }
-          }),
-          StateTransfer.create({
-            trigger: ProcessKickRequest,
-            current: activeRelationState,
-            next: inactiveRelationState,
-            computeTarget: async function(this: any, event: any) {
-              if (event.payload.action === 'approve') {
-                const kickRequest = await this.system.storage.findOne('KickRequest',
-                  MatchExp.atom({
-                    key: 'id',
-                    value: ['=', event.payload.requestId]
-                  }),
-                  undefined,
-                  ['*']
-                );
-                if (kickRequest) {
-                  const relation = await this.system.storage.findOneRelationByName('UserBed',
-                    MatchExp.atom({
-                      key: 'source.id',
-                      value: ['=', kickRequest.target.id]
-                    }),
-                    undefined,
-                    ['id']
-                  );
-                  return relation;
-                }
-              }
-              return null;
-            }
-          })
-        ]
-      })
-    })
-  ],
-  computation: Transform.create({
-    record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: async function(this: any, event: any) {
-      if (event.interactionName === 'AssignUserToDormitory') {
-        // Find the relationship between dormitory and bed
-        const bedRelation = await this.system.storage.findOneRelationByName('DormitoryBed',
-          MatchExp.atom({
-            key: 'source.id',
-            value: ['=', event.payload.dormitoryId]
-          }).and(MatchExp.atom({
-            key: 'target.bedNumber',
-            value: ['=', event.payload.bedNumber]
-          })),
-          undefined,
-          ['target']
-        );
-        
-        if (bedRelation) {
-          return {
-            source: { id: event.payload.userId },
-            target: bedRelation.target,
-            status: 'active',
-            assignedAt: Math.floor(Date.now()/1000)
-          };
-        }
-      }
-      return null;
-    }
-  })
-});
-
+// Dormitory-Bed Relation
 export const DormitoryBedRelation = Relation.create({
   source: Dormitory,
   sourceProperty: 'beds',
   target: Bed,
   targetProperty: 'dormitory',
-  type: '1:n',
-  computation: Transform.create({
-    record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: async function(this: any, event: any) {
-      if (event.interactionName === 'CreateDormitory') {
-        // Find the dormitory that was just created
-        const dormitory = await this.system.storage.findOne('Dormitory',
-          MatchExp.atom({
-            key: 'name',
-            value: ['=', event.payload.name]
-          }),
-          undefined,
-          ['id']
-        );
-        
-        if (dormitory) {
-          // Find all beds that were created for this dormitory
-          const beds = [];
-          for (let i = 1; i <= event.payload.capacity; i++) {
-            const bed = await this.system.storage.findOne('Bed',
-              MatchExp.atom({
-                key: 'bedNumber',
-                value: ['=', i]
-              }),
-              undefined,
-              ['id'],
-              1,
-              0,
-              'desc'
-            );
-            if (bed) {
-              beds.push({
-                source: dormitory,
-                target: bed
-              });
-            }
-          }
-          return beds;
-        }
-      }
-      return null;
-    }
-  })
-});
+  type: '1:n'
+})
 
-export const DormitoryHeadRelation = Relation.create({
-  source: Dormitory,
-  sourceProperty: 'head',
+// UserBedAssignment-User Relation
+export const UserBedAssignmentUserRelation = Relation.create({
+  source: UserBedAssignment,
+  sourceProperty: 'user',
   target: User,
-  targetProperty: 'managedDormitory',
-  type: '1:1',
-  properties: [
-    Property.create({ 
-      name: 'appointedAt', 
-      type: 'number',
-      defaultValue: () => Math.floor(Date.now()/1000)
-    }),
-    Property.create({ 
-      name: 'status', 
-      type: 'string',
-      defaultValue: () => 'active',
-      computation: StateMachine.create({
-        states: [activeRelationState, inactiveRelationState],
-        defaultState: activeRelationState,
-        transfers: [
-          StateTransfer.create({
-            trigger: RemoveDormHead,
-            current: activeRelationState,
-            next: inactiveRelationState,
-            computeTarget: async function(this: any, event: any) {
-              const relation = await this.system.storage.findOneRelationByName('DormitoryHead',
-                MatchExp.atom({
-                  key: 'target.id',
-                  value: ['=', event.payload.userId]
-                }),
-                undefined,
-                ['id']
-              );
-              return relation;
-            }
-          })
-        ]
-      })
-    })
-  ],
-  computation: Transform.create({
-    record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
-      if (event.interactionName === 'AssignDormHead') {
-        return {
-          source: { id: event.payload.dormitoryId },
-          target: { id: event.payload.userId },
-          status: 'active',
-          appointedAt: Math.floor(Date.now()/1000)
-        };
-      }
-      return null;
-    }
-  })
-});
+  targetProperty: 'bedAssignments',
+  type: 'n:1'
+})
 
-export const UserScoreRecordRelation = Relation.create({
+// UserBedAssignment-Bed Relation  
+export const UserBedAssignmentBedRelation = Relation.create({
+  source: UserBedAssignment,
+  sourceProperty: 'bed',
+  target: Bed,
+  targetProperty: 'assignments',
+  type: 'n:1'
+})
+
+// User-BehaviorRecord Relation
+export const UserBehaviorRecordRelation = Relation.create({
   source: User,
-  sourceProperty: 'scoreRecords',
-  target: ScoreRecord,
+  sourceProperty: 'behaviorRecords',
+  target: BehaviorRecord,
   targetProperty: 'user',
   type: '1:n'
-});
+})
 
-export const ScoreRecordOperatorRelation = Relation.create({
-  source: User,
-  sourceProperty: 'operatedScoreRecords',
-  target: ScoreRecord,
-  targetProperty: 'operator',
-  type: '1:n'
-});
+// BehaviorRecord-Recorder Relation
+export const BehaviorRecordRecorderRelation = Relation.create({
+  source: BehaviorRecord,
+  sourceProperty: 'recorder',
+  target: User,
+  targetProperty: 'recordedBehaviors',
+  type: 'n:1'
+})
 
-export const KickRequestRequesterRelation = Relation.create({
-  source: User,
-  sourceProperty: 'requestedKicks',
-  target: KickRequest,
-  targetProperty: 'requester',
-  type: '1:n'
-});
+// ExpulsionRequest-Requester Relation
+export const ExpulsionRequestRequesterRelation = Relation.create({
+  source: ExpulsionRequest,
+  sourceProperty: 'requester',
+  target: User,
+  targetProperty: 'expulsionRequests',
+  type: 'n:1'
+})
 
-export const KickRequestTargetRelation = Relation.create({
-  source: User,
-  sourceProperty: 'receivedKicks',
-  target: KickRequest,
-  targetProperty: 'target',
-  type: '1:n'
-});
+// ExpulsionRequest-Target Relation
+export const ExpulsionRequestTargetRelation = Relation.create({
+  source: ExpulsionRequest,
+  sourceProperty: 'targetUser',
+  target: User,
+  targetProperty: 'expulsionRequestsAgainst',
+  type: 'n:1'
+})
 
-export const KickRequestApproverRelation = Relation.create({
-  source: User,
-  sourceProperty: 'approvedKicks',
-  target: KickRequest,
-  targetProperty: 'approver',
-  type: '1:n',
-  computation: Transform.create({
-    record: InteractionEventEntity,
-    attributeQuery: ['*'],
-    callback: (event: any) => {
-      if (event.interactionName === 'ProcessKickRequest') {
-        return {
-          source: event.user,
-          target: { id: event.payload.requestId }
-        };
-      }
-      return null;
-    }
+// ====================
+// 3. INTERACTIONS
+// ====================
+
+// CreateUser Interaction
+export const CreateUser = Interaction.create({
+  name: 'CreateUser',
+  action: Action.create({ name: 'createUser' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'name', required: true }),
+      PayloadItem.create({ name: 'email', required: true }),
+      PayloadItem.create({ name: 'phone', required: true }),
+      PayloadItem.create({ name: 'role', required: true })
+    ]
   })
-});
+})
 
-export const ScoreRecordRuleRelation = Relation.create({
-  source: ScoreRule,
-  sourceProperty: 'scoreRecords',
-  target: ScoreRecord,
-  targetProperty: 'rule',
-  type: '1:n'
-});
-
-// ========== Filtered Entities ==========
-
-export const ActiveUser = Entity.create({
-  name: 'ActiveUser',
-  sourceEntity: User,
-  filterCondition: MatchExp.atom({
-    key: 'status',
-    value: ['=', 'active']
+// AssignDormHead Interaction
+export const AssignDormHead = Interaction.create({
+  name: 'AssignDormHead',
+  action: Action.create({ name: 'assignDormHead' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId', required: true }),
+      PayloadItem.create({ name: 'dormitoryId', required: true })
+    ]
   })
-});
+})
 
-export const ActiveScoreRecord = Entity.create({
-  name: 'ActiveScoreRecord',
-  sourceEntity: ScoreRecord,
-  filterCondition: MatchExp.atom({
-    key: 'status',
-    value: ['=', 'active']
+// CreateDormitory Interaction
+export const CreateDormitory = Interaction.create({
+  name: 'CreateDormitory',
+  action: Action.create({ name: 'createDormitory' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'name', required: true }),
+      PayloadItem.create({ name: 'bedCount', required: true })
+    ]
   })
-});
+})
 
-export const PendingKickRequest = Entity.create({
-  name: 'PendingKickRequest',
-  sourceEntity: KickRequest,
-  filterCondition: MatchExp.atom({
-    key: 'status',
-    value: ['=', 'pending']
+// AssignUserToBed Interaction
+export const AssignUserToBed = Interaction.create({
+  name: 'AssignUserToBed',
+  action: Action.create({ name: 'assignUserToBed' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId', required: true }),
+      PayloadItem.create({ name: 'bedId', required: true })
+    ]
   })
-});
+})
 
-export const AvailableBed = Entity.create({
-  name: 'AvailableBed',
-  sourceEntity: Bed,
-  filterCondition: MatchExp.atom({
-    key: 'status',
-    value: ['=', 'available']
+// RecordBehavior Interaction
+export const RecordBehavior = Interaction.create({
+  name: 'RecordBehavior',
+  action: Action.create({ name: 'recordBehavior' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId', required: true }),
+      PayloadItem.create({ name: 'behaviorType', required: true }),
+      PayloadItem.create({ name: 'description', required: true }),
+      PayloadItem.create({ name: 'penaltyPoints', required: true })
+    ]
   })
-});
+})
 
-// Export arrays for easy consumption
+// CreateExpulsionRequest Interaction
+export const CreateExpulsionRequest = Interaction.create({
+  name: 'CreateExpulsionRequest',
+  action: Action.create({ name: 'createExpulsionRequest' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'targetUserId', required: true }),
+      PayloadItem.create({ name: 'reason', required: true })
+    ]
+  })
+})
+
+// ProcessExpulsionRequest Interaction
+export const ProcessExpulsionRequest = Interaction.create({
+  name: 'ProcessExpulsionRequest',
+  action: Action.create({ name: 'processExpulsionRequest' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'requestId', required: true }),
+      PayloadItem.create({ name: 'decision', required: true }),
+      PayloadItem.create({ name: 'adminNotes' })
+    ]
+  })
+})
+
+// ====================
+// 4. ACTIVITIES
+// ====================
+
+export const DormitoryManagementActivity = Activity.create({
+  name: 'DormitoryManagement',
+  interactions: [
+    CreateUser,
+    AssignDormHead,
+    CreateDormitory,
+    AssignUserToBed,
+    RecordBehavior,
+    CreateExpulsionRequest,
+    ProcessExpulsionRequest
+  ]
+})
+
+// ====================
+// 5. SYSTEM SETUP
+// ====================
+
 export const entities = [
-  User, Dormitory, Bed, ScoreRecord, KickRequest, ScoreRule,
-  ActiveUser, ActiveScoreRecord, PendingKickRequest, AvailableBed
-];
+  User,
+  Dormitory,
+  Bed,
+  UserBedAssignment,
+  BehaviorRecord,
+  ExpulsionRequest
+]
 
 export const relations = [
-  UserDormitoryRelation, UserBedRelation, DormitoryBedRelation, DormitoryHeadRelation,
-  UserScoreRecordRelation, ScoreRecordOperatorRelation, 
-  KickRequestRequesterRelation, KickRequestTargetRelation, KickRequestApproverRelation,
-  ScoreRecordRuleRelation
-];
+  UserDormitoryHeadRelation,
+  DormitoryBedRelation,
+  UserBedAssignmentUserRelation,
+  UserBedAssignmentBedRelation,
+  UserBehaviorRecordRelation,
+  BehaviorRecordRecorderRelation,
+  ExpulsionRequestRequesterRelation,
+  ExpulsionRequestTargetRelation
+]
 
 export const interactions = [
-  CreateDormitory, AssignDormHead, RemoveDormHead, AssignUserToDormitory, RemoveUserFromDormitory,
-  CreateScoreRecord, RevokeScoreRecord, CreateKickRequest, ProcessKickRequest,
-  CreateScoreRule, UpdateScoreRule, DeactivateScoreRule
-];
+  CreateUser,
+  AssignDormHead,
+  CreateDormitory,
+  AssignUserToBed,
+  RecordBehavior,
+  CreateExpulsionRequest,
+  ProcessExpulsionRequest
+]
 
-export const activities = [];
-export const dicts = [];
-export const recordMutationSideEffects = [];
+export const activities = [] // No activities for now - focusing on basic interactions
+
+export const dicts = []
+
+export async function createDormitoryManagementSystem() {
+  const system = new MonoSystem(new PGLiteDB())
+  
+  const controller = new Controller({
+    system,
+    entities,
+    relations,
+    activities,
+    interactions,
+    dict: dicts
+  })
+
+  await controller.setup(true)
+
+  return { system, controller }
+}

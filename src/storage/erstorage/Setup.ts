@@ -3,6 +3,7 @@ import { assert } from "../utils.js";
 import { EntityInstance, RelationInstance, PropertyInstance } from "@shared";
 import { ID_ATTR, ROW_ID_ATTR, Database } from "@runtime";
 import { isRelation } from "./util.js";
+import { MatchExpressionData, MatchExp } from "./MatchExp.js";
 
 // Define the types we need
 
@@ -13,6 +14,7 @@ type ColumnData = {
     collection?:boolean,
     notNull?: boolean,
     defaultValue?: () =>any
+    attribute?: ValueAttribute
 }
 
 
@@ -115,27 +117,91 @@ export class DBSetup {
 
     resolveBaseSourceEntityAndFilter(entity: EntityInstance) {
         const entityWithProps = entity
-        let sourceEntity = (entityWithProps as any).sourceEntity
-        let filterCondition = (entityWithProps as any).filterCondition
-        assert((sourceEntity && filterCondition) || (!sourceEntity && !filterCondition), `filterCondition is required for ${entityWithProps.name}`)
-        if (!(sourceEntity && filterCondition)) return
+        let baseEntity = (entityWithProps as any).baseEntity
+        let matchExpression = (entityWithProps as any).matchExpression
+        assert((baseEntity && matchExpression) || (!baseEntity && !matchExpression), `matchExpression is required for ${entityWithProps.name}`)
+        if (!(baseEntity && matchExpression)) return
 
-        while(sourceEntity.sourceEntity) {
-            sourceEntity = sourceEntity.sourceEntity
-            filterCondition = filterCondition.and(sourceEntity.filter)
+        while(baseEntity.baseEntity) {
+            baseEntity = baseEntity.baseEntity
+            matchExpression = matchExpression.and(baseEntity.filter)
         }
 
-        return { sourceEntity, filterCondition }
+        return { baseEntity, matchExpression }
     }
 
-    createRecord(entity: EntityInstance | RelationInstance, isRelation? :boolean) {
+    /**
+     * 验证 filtered entity 的过滤条件中的路径不包含 x:n 关系
+     */
+    private validateFilteredEntityPaths(entityName: string, matchExpression: MatchExpressionData) {
+        const paths = MatchExp.extractPaths(matchExpression);
         
-        const entityWithProps = entity
-        const attributes: {[k:string]: Omit<ValueAttribute, 'field'>} = Object.fromEntries(entityWithProps.properties.map((property:PropertyInstance) => {
+        for (const path of paths) {
+            this.validateSinglePath(entityName, path);
+        }
+    }
+    
+    /**
+     * 验证单个路径不包含 x:n 关系
+     */
+    private validateSinglePath(entityName: string, pathParts: string[]) {
+        let currentEntity = entityName;
+        
+        // 遍历路径的每个部分（除了最后一个，最后一个是属性）
+        for (let i = 0; i < pathParts.length - 1; i++) {
+            const attribute = pathParts[i];
+            
+            // 获取这个属性的信息
+            const entityData = this.map.records[currentEntity];
+            if (!entityData) {
+                throw new Error(`Entity ${currentEntity} not found in map`);
+            }
+            
+            const attributeData = entityData.attributes[attribute];
+            if (!attributeData || !(attributeData as any).isRecord) {
+                throw new Error(`Attribute ${attribute} is not a relation in entity ${currentEntity}`);
+            }
+            
+            // 检查关系类型
+            const relType = (attributeData as any).relType;
+            if (relType && (relType[1] === 'n')) {
+                throw new Error(
+                    `Filtered entity '${this.currentFilteredEntityName}' contains an invalid path: ` +
+                    `'${pathParts.join('.')}'. The relation '${currentEntity}.${attribute}' is a ${relType[0]}:${relType[1]} relation. ` +
+                    `Filtered entities do not support paths with 'x:n' relationships for performance reasons.`
+                );
+            }
+            
+            // 移动到下一个实体
+            currentEntity = (attributeData as any).recordName;
+        }
+    }
+    
+    private currentFilteredEntityName?: string;
+    /**
+     * 递归收集所有依赖于给定实体的 filtered entities（包括级联的）
+     */
+    private collectAllFilteredEntities(entity: EntityInstance | RelationInstance): (EntityInstance | RelationInstance)[] {
+        const directFiltered = [...this.entities, ...this.relations].filter(e => 
+            (e as any).baseEntity === entity || (e as any).baseRelation === entity
+        );
+        
+        const allFiltered: (EntityInstance | RelationInstance)[] = [...directFiltered];
+        
+        // 递归查找基于 filtered entity 的其他 filtered entities
+        for (const filtered of directFiltered) {
+            allFiltered.push(...this.collectAllFilteredEntities(filtered));
+        }
+        
+        return allFiltered;
+    }
+    createRecord(entity: EntityInstance | RelationInstance, isRelation? :boolean) {
+        const attributes: {[k:string]: Omit<ValueAttribute, 'field'>} = Object.fromEntries(entity.properties.map((property:PropertyInstance) => {
             const prop = property
             return [
                 prop.name,
                 {
+                    name: prop.name,
                     type: prop.type,
                     computed: prop.computed as ((record: any) => any) | undefined,
                     collection: prop.collection,
@@ -152,71 +218,167 @@ export class DBSetup {
 
         // 自动补充
         attributes[ID_ATTR] = {
+            name: ID_ATTR,
             type: 'id',
             fieldType: this.database!.mapToDBFieldType('pk')
         }
 
-        // 添加 __filtered_entities 字段到需要的实体或关系
-        const filteredBy = this.entities.filter(e => 
-            (e as any).sourceEntity === entityWithProps
-        );
+        // 使用递归方法收集所有依赖的 filtered entities
+        const filteredBy = this.collectAllFilteredEntities(entity);
         
         if (filteredBy.length) {
             attributes['__filtered_entities'] = {
+                name: '__filtered_entities',
                 type: 'json',
-                fieldType: this.database!.mapToDBFieldType('json') || 'JSON'
+                fieldType: this.database!.mapToDBFieldType('json') || 'JSON',
+                collection: false,
+                computed: undefined,
+                // JSON 字段的默认值应该返回对象，在写入数据库时会自动序列化
+                defaultValue: () => ({})
             };
         }
 
-        const { sourceEntity, filterCondition } = (entityWithProps as any) || {}
-        // CAUTION 暂时不支持跨 record 的 Filter。如果要支持，需要有类似 runtime computation 中的级联计算法
-
         return {
-            table: entityWithProps.name,
+            table: entity.name,
             attributes,
             isRelation,
-            sourceRecordName: sourceEntity?.name,
-            filterCondition: filterCondition,
             filteredBy: filteredBy.length ? filteredBy.map(e => e.name) : undefined,
         } as RecordMapItem
     }
+    createFilteredEntityRecord(entity: EntityInstance) {
+        // 使用递归方法收集所有依赖的 filtered entities
+        const filteredBy = this.collectAllFilteredEntities(entity);
+        const { baseEntity, matchExpression } = entity
+
+        const { resolvedBaseRecordName, resolvedMatchExpression } = this.resolveRootBaseRecordNameAndMatchExpression(entity)
+
+        return {
+            table: resolvedBaseRecordName,
+            isFilteredEntity: !!baseEntity,
+            attributes: {},
+            baseRecordName: baseEntity?.name,
+            matchExpression: matchExpression,
+            resolvedBaseRecordName,
+            resolvedMatchExpression,
+            filteredBy: filteredBy.length ? filteredBy.map(e => e.name) : undefined,
+        } as RecordMapItem
+    }
+    createFilteredRelationRecord(relation: RelationInstance) {
+        const attributes: {[k:string]: Omit<ValueAttribute, 'field'>} = Object.fromEntries(relation.properties.map((property:PropertyInstance) => {
+            const prop = property
+            return [
+                prop.name,
+                {
+                    name: prop.name,
+                    type: prop.type,
+                    computed: prop.computed as ((record: any) => any) | undefined,
+                    collection: prop.collection,
+                    defaultValue: prop.defaultValue as (() => any) | undefined,
+                    fieldType: this.database!.mapToDBFieldType(prop.type, prop.collection)
+                }
+            ];
+        }));
+
+
+        assert(!attributes.source && !attributes.target, 'source and target is reserved name for relation attributes')
+
+        // 使用递归方法收集所有依赖的 filtered entities
+        const filteredBy = this.collectAllFilteredEntities(relation);
+        const { matchExpression, baseRelation } = relation
+        const { resolvedBaseRecordName, resolvedMatchExpression } = this.resolveRootBaseRecordNameAndMatchExpression(relation)
+
+        return {
+            table: resolvedBaseRecordName,
+            attributes,
+            baseRecordName: baseRelation!.name,
+            matchExpression: matchExpression,
+            resolvedBaseRecordName,
+            resolvedMatchExpression,
+            filteredBy: filteredBy.length ? filteredBy.map(e => e.name) : undefined,
+            // 添加 filtered relation 的标记
+            isFilteredRelation:true,
+            baseRelationName: baseRelation!.name
+        } as RecordMapItem
+    }
+    resolveRootBaseRecordNameAndMatchExpression(entity: EntityInstance | RelationInstance) {
+        const { baseEntity, baseRelation, matchExpression } = entity as any
+        // 计算 resolved 字段
+        let resolvedBaseRecordName: string | undefined;
+        let resolvedMatchExpression: MatchExpressionData | undefined;
+        
+        // 递归查找最底层的源实体/关系
+        let currentEntity = baseEntity! || baseRelation!;
+        let currentMatchExpression = matchExpression || (entity as any).matchExpression;
+        const matchExpressions: MatchExpressionData[] = [currentMatchExpression];
+        
+        while ((currentEntity as any).baseEntity || (currentEntity as any).baseRelation) {
+            const nextEntity = (currentEntity as any).baseEntity || (currentEntity as any).baseRelation;
+            const nextMatchExpression = (currentEntity as any).matchExpression;
+            if (nextMatchExpression) {
+                matchExpressions.push(nextMatchExpression);
+            }
+            currentEntity = nextEntity;
+        }
+        
+        resolvedBaseRecordName = currentEntity.name;
+        
+        // 合并所有 matchExpression
+        if (matchExpressions.length > 0) {
+            resolvedMatchExpression = matchExpressions[0];
+            for (let i = 1; i < matchExpressions.length; i++) {
+                resolvedMatchExpression = resolvedMatchExpression.and(matchExpressions[i]);
+            }
+        }
+        return { resolvedBaseRecordName, resolvedMatchExpression }
+    }
     createLink(relationName: string, relation: RelationInstance) {
-        const relationWithProps = relation
-        if (!relationWithProps.type) debugger
+
         return {
             table: relationName,
-            relType: relationWithProps.type.split(':'),
-            sourceRecord: this.getRecordName(relationWithProps.source),
-            sourceProperty: relationWithProps.sourceProperty,
-            targetRecord: this.getRecordName(relationWithProps.target),
-            targetProperty: relationWithProps.targetProperty,
+            relType: relation.type.split(':'),
+            sourceRecord: relation.source.name,
+            sourceProperty: relation.sourceProperty,
+            targetRecord: relation.target.name,
+            targetProperty: relation.targetProperty,
             recordName: relationName,
-            isTargetReliance: relationWithProps.isTargetReliance
+            isTargetReliance: relation.isTargetReliance,
+            matchExpression: relation.matchExpression,
         } as LinkMapItem
     }
-    getRecordName(rawRecord: EntityInstance | RelationInstance): string {
-        if (isRelation(rawRecord)) {
-            const record = rawRecord as RelationInstance
-            return `${record.source.name}_${record.sourceProperty}_${record.targetProperty}_${record.target.name}`
-        } else {
-            const record = rawRecord as EntityInstance
-            return record.name
-        }
-    }
+    createFilteredLink(relationName: string, relation: RelationInstance) {
+        const { resolvedBaseRecordName, resolvedMatchExpression } = this.resolveRootBaseRecordNameAndMatchExpression(relation)
+
+        return {
+            table: relationName,
+            relType: relation.type.split(':'),
+            sourceRecord: relation.source.name,
+            sourceProperty: relation.sourceProperty,
+            targetRecord: relation.target.name,
+            targetProperty: relation.targetProperty,
+            recordName: relationName,
+            isTargetReliance: relation.isTargetReliance,
+            isFilteredRelation: !!relation.baseRelation,
+            matchExpression: relation.matchExpression,
+            baseLinkName: relation.baseRelation?.name,
+            resolvedBaseRecordName,
+            resolvedMatchExpression
+        } as LinkMapItem
+    }   
     //虚拟 link
     createLinkOfRelationAndEntity(relationEntityName: string, relationName: string, relation: RelationInstance, isSource: boolean) {
         const relationWithProps = relation 
         const [sourceRelType, targetRelType] = relationWithProps.type.split(':');
         return {
             table: undefined, // 虚拟 link 没有表
+            attributes: {},
             sourceRecord: relationEntityName,
             sourceProperty: isSource ? 'source' : 'target',
-            targetRecord: isSource ? this.getRecordName(relationWithProps.source): this.getRecordName(relationWithProps.target),
+            targetRecord: isSource ? relationWithProps.source.name: relationWithProps.target.name,
             // targetRecord: isSource ? relation.source.name: relation.target.name,
             targetProperty: undefined, // 不能从 entity 来获取关系表
             relType: [isSource ? targetRelType : sourceRelType,'1'],
             isSourceRelation: true,
-            mergedTo: 'combined'
+            mergedTo: 'combined',
         } as LinkMapItem
     }
     getRelationNameOfRelationAndEntity(relationName: string, isSource: boolean) {
@@ -226,43 +388,59 @@ export class DBSetup {
     buildMap() {
         // 1. 按照范式生成基础 entity record
         this.entities.forEach(entity => {
-            const entityWithProps = entity 
-            assert(!this.map.records[entityWithProps.name], `entity name ${entityWithProps.name} is duplicated`)
-            this.map.records[entityWithProps.name] = this.createRecord(entity)
+            assert(!this.map.records[entity.name], `entity name ${entity.name} is duplicated`)
+            this.map.records[entity.name] = entity.baseEntity ? this.createFilteredEntityRecord(entity) : this.createRecord(entity)
             // 记录一下 entity 和 表的关系。后面用于合并的时候做计算。
-            this.createRecordToTable(entityWithProps.name, entityWithProps.name)
+            if(!entity.baseEntity) {
+                this.createRecordToTable(entity.name, this.map.records[entity.name].table)
+            }
         })
 
         // 2. 生成 relation record 以及所有的 link
         this.relations.forEach(relation => {
-            const sourceName = this.getRecordName(relation.source)
-            const targetName = this.getRecordName(relation.target)
+            const sourceName = relation.source.name
+            const targetName = relation.target.name
             const relationName = relation.name || `${sourceName}_${relation.sourceProperty}_${relation.targetProperty}_${targetName}`
             assert(!this.map.records[relationName], `relation name ${relationName} is duplicated`)
-            this.map.records[relationName] = this.createRecord(relation, true)
-            this.createRecordToTable(relationName, relationName)
+            this.map.records[relationName] = relation.baseRelation ? this.createFilteredRelationRecord(relation) : this.createRecord(relation, true)
             // 记录 relation 里面的  Entity 和 Entity 的关系
-            this.map.links[relationName] = this.createLink(relationName, relation)
+            this.map.links[relationName] = relation.baseRelation ? this.createFilteredLink(relationName, relation) : this.createLink(relationName, relation)
             // 记录 relation 和实体之间的关系。这个关系是单向的，只能从 relation 发起。
             const virtualSourceRelationName = this.getRelationNameOfRelationAndEntity(relationName, true)
             this.map.links[virtualSourceRelationName] = this.createLinkOfRelationAndEntity(relationName, virtualSourceRelationName, relation, true)
             const virtualTargetRelationName = this.getRelationNameOfRelationAndEntity(relationName, false)
             this.map.links[virtualTargetRelationName] = this.createLinkOfRelationAndEntity(relationName, virtualTargetRelationName, relation, false)
+            if(!relation.baseRelation) {
+                this.createRecordToTable(relationName, this.map.records[relationName].table)
+            }
         })
 
         // 3. 根据 Link 补充 record attribute 到 record 里面。方便之后的查询。
         Object.entries(this.map.links).forEach(([relation, relationData]) => {
             assert(!relationData.isSourceRelation || (relationData.sourceProperty === 'source' || relationData.sourceProperty === 'target'), 'virtual relation sourceProperty should only be source/target')
-            if (!this.map.records[relationData.sourceRecord]) debugger
+            
+            // 检查是否是 filtered relation
+            const relationRecord = this.map.records[relation]
+            const isFilteredRelation = relationRecord && !!relationRecord.baseRelationName
+            const sourceLink = isFilteredRelation ? this.map.links[relationRecord.baseRelationName!]! : undefined
+            
+
             this.map.records[relationData.sourceRecord].attributes[relationData.sourceProperty] = {
                 type: 'id',
                 isRecord:true,
                 relType: relationData.relType,
                 recordName: relationData.targetRecord,
                 linkName: relation,
+                attributeName: relationData.sourceProperty,
                 isSource: true,
                 // CAUTION 这里是表示这个 target 是 reliance
-                isReliance: relationData.isTargetReliance
+                isReliance: relationData.isTargetReliance,
+                // 标记这是一个 filtered relation
+                isFilteredRelation: isFilteredRelation,
+                matchExpression: isFilteredRelation?relationData.matchExpression: undefined,
+                baseRelationAttributeName: isFilteredRelation? sourceLink?.sourceProperty: undefined,
+                resolvedMatchExpression: isFilteredRelation? relationRecord.resolvedMatchExpression: undefined,
+                resolvedBaseRecordName: isFilteredRelation? relationRecord?.resolvedBaseRecordName: undefined
             } as RecordAttribute
 
             // CAUTION 关联查询时，不可能出现从实体来获取一个关系的情况，语义不正确。
@@ -275,10 +453,24 @@ export class DBSetup {
                     relType: [relationData.relType[1], relationData.relType[0]],
                     recordName: relationData.sourceRecord,
                     linkName: relation,
+                    attributeName: relationData.targetProperty,
                     isSource:false,
+                    // 标记这是一个 filtered relation
+                    isFilteredRelation: isFilteredRelation,
+                    matchExpression: isFilteredRelation?relationData.matchExpression: undefined,
+                    baseRelationAttributeName: isFilteredRelation? sourceLink?.targetProperty: undefined
                 } as RecordAttribute
             }
         })
+
+        // 4. 验证所有 filtered entity 的路径
+        this.entities.forEach(entity => {
+            const entityWithProps = entity as any;
+            if (entityWithProps.baseEntity && entityWithProps.matchExpression) {
+                this.currentFilteredEntityName = entityWithProps.name;
+                this.validateFilteredEntityPaths(entityWithProps.baseEntity.name, entityWithProps.matchExpression);
+            }
+        });
 
         this.mergeRecords()
         this.assignTableAndField()
@@ -345,6 +537,7 @@ export class DBSetup {
 
         // 2. reliance 三表合一。这里有一个不能有链的检测。
         Object.values(oneToOneRelianceLinks).forEach(linkData => {
+            if(linkData.isFilteredRelation) return
             const { sourceRecord, targetRecord, recordName: linkRecord} = linkData
             // 只是尝试。有冲突就不会处理
             const conflicts = this.combineRecordTable(sourceRecord, targetRecord, linkRecord!)
@@ -367,6 +560,7 @@ export class DBSetup {
         // FIXME 还要加上 reliance 不是 1:1 的？
         // 3. 剩余的 x:1 关系只合并关系表。
         Object.values(xToOneNotRelianceLinks).forEach(linkData => {
+            if(linkData.isFilteredRelation) return
             const { relType, sourceRecord, targetRecord, recordName: linkRecord} = linkData
             const mergeWithSource = relType[1] !== 'n'
             const mergeTarget = mergeWithSource ? sourceRecord : targetRecord
@@ -382,6 +576,8 @@ export class DBSetup {
 
         // 4. 先给所有的 virtualLink 赋予默认 的 mergeTo，下一步再按照实际情况修改该
         Object.values(this.map.links).forEach(linkData => {
+            if(linkData.isFilteredRelation) return
+
             if (linkData.isSourceRelation) {
                 linkData.mergedTo = 'source'
             }
@@ -477,77 +673,34 @@ export class DBSetup {
                 if(!(attribute as ValueAttribute).fieldType) {
                     throw new Error(`fieldType not found for ${(attribute as ValueAttribute).field} ${(attribute as ValueAttribute).type}`)
                 }
-                this.tables[record.table].columns[attribute.field] = {
-                    name: (attribute as ValueAttribute).field,
-                    type: (attribute as ValueAttribute).type,
-                    fieldType: (attribute as ValueAttribute).fieldType,
-                    defaultValue: (attribute as ValueAttribute).defaultValue
+                const valueAttribute = attribute as ValueAttribute
+                this.tables[record.table].columns[valueAttribute.field] = {
+                    name: valueAttribute.field,
+                    type: valueAttribute.type,
+                    fieldType: valueAttribute.fieldType,
+                    defaultValue: valueAttribute.defaultValue,
+                    attribute: valueAttribute,
                 }
             })
         })
 
     }
 
-    formatDefaultValue(value: any, fieldType?: string): string {
-        // 处理 undefined 值 - 不应该有默认值
-        if (value === undefined) {
-            return '';
-        }
-        
-        // 处理 null 值
-        if (value === null) {
-            return 'NULL';
-        }
-        
-        // 处理字符串类型
-        if (typeof value === 'string') {
-            // 对于 PostgreSQL/PGLite，字符串需要用单引号包裹
-            // 并且需要转义内部的单引号
-            return `'${value.replace(/'/g, "''")}'`;
-        }
-        
-        // 处理布尔值
-        if (typeof value === 'boolean') {
-            return value.toString();
-        }
-        
-        // 处理数字
-        if (typeof value === 'number') {
-            return value.toString();
-        }
-        
-        // 处理对象/数组（JSON类型）
-        if (typeof value === 'object' && value !== null) {
-            // 对于 JSON 类型，需要将对象序列化并用单引号包裹
-            const jsonStr = JSON.stringify(value);
-            // 转义单引号
-            return `'${jsonStr.replace(/'/g, "''")}'`;
-        }
-        
-        // 其他类型返回空字符串
-        return '';
-    }
-
     createTableSQL() {
-        return Object.keys(this.tables).map(tableName => (
+        return Object.keys(this.tables).map(tableName => {
+            const sql = (
             `
 CREATE TABLE "${tableName}" (
 ${Object.values(this.tables[tableName].columns).map(column => {
     let sql = `    "${column.name}" ${column.fieldType}`;
-    if (column.defaultValue) {
-        const defaultVal = column.defaultValue();
-        if (defaultVal !== undefined) {
-            const formattedDefault = this.formatDefaultValue(defaultVal);
-            if (formattedDefault) {
-                sql += ` DEFAULT ${formattedDefault}`;
-            }
-        }
-    }
+    // 移除 DEFAULT 子句生成，改为程序控制
+    // defaultValue 将在创建记录时由程序处理
     return sql;
 }).join(',')}
 )
-`
-        ))
+`)
+            return sql
+        })
     }
     createTables() {
         return Promise.all(this.createTableSQL().map(sql => {

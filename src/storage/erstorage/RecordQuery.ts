@@ -25,20 +25,38 @@ export class RecordQuery {
         parentRecord?:string,
         attributeName?:string,
         onlyRelationData?: boolean,
-        allowNull = false
+        allowNull = false,
+        alias?: string
     ) {
+        const recordInfo = map.getRecordInfo(recordName)
+        const isFiltered = recordInfo.isFilteredEntity || recordInfo.isFilteredRelation
+        
+        // 使用预计算的值
+        let baseRecordName = recordName;
+        if (isFiltered ) {
+            baseRecordName = recordInfo.data.resolvedBaseRecordName!;
+        } 
+
+        
         // CAUTION 因为合表后可能用关联数据匹配到行。
-        const inputMatch = new MatchExp(recordName, map, data.matchExpression, contextRootEntity)
-        const matchExpression = allowNull ? inputMatch: inputMatch.and({
+        const inputMatch = new MatchExp(baseRecordName, map, data.matchExpression, contextRootEntity)
+        let matchExpression = allowNull ? inputMatch: inputMatch.and({
             key: 'id',
             value: ['not', null]
         })
+
+        // 使用预计算的合并后的 matchExpression
+        let resolvedMatchExpression = matchExpression;
+        if (isFiltered) {
+            resolvedMatchExpression = matchExpression.and(new MatchExp(baseRecordName, map, recordInfo.data.resolvedMatchExpression));
+        }
+
         return new RecordQuery(
-            recordName,
+            baseRecordName,
             map,
-            matchExpression,
-            new AttributeQuery(recordName, map, data.attributeQuery || [], parentRecord, attributeName),
-            new Modifier(recordName, map, data.modifier!),
+            resolvedMatchExpression,
+            new AttributeQuery(baseRecordName, map, data.attributeQuery || [], parentRecord, attributeName),
+            new Modifier(baseRecordName, map, data.modifier!),
             contextRootEntity,
             parentRecord,
             attributeName,
@@ -46,7 +64,8 @@ export class RecordQuery {
             allowNull,
             data.label,
             data.goto,
-            data.exit
+            data.exit,
+            alias
         )
     }
 
@@ -63,7 +82,9 @@ export class RecordQuery {
         public allowNull = false,
         public label?: string,
         public goto?: string,
-        public exit? : (context: RecursiveContext) => Promise<boolean>
+        public exit? : (context: RecursiveContext) => Promise<boolean>,
+        // 返回时在父节点中的名字，这是针对使用 filtered relation 名称查询时需要的。
+        public alias?: string
     ) {}
     getData(): RecordQueryData {
         return {

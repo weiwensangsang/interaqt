@@ -421,6 +421,7 @@ For EVERY property, answer ALL these questions:
 1. **Is this a timestamp?**
    - Created timestamp? → Use `defaultValue: () => Math.floor(Date.now()/1000)`
    - Updated timestamp? → Use StateMachine with computeValue
+   - Need to track WHO updated? → Use computeValue with event parameter: `(lastValue, event) => ({ timestamp: Date.now(), updatedBy: event?.user?.name })`
    
 2. **Is this a status/state field?**
    - Has defined states? → Use StateMachine
@@ -487,7 +488,7 @@ const updatedState = StateNode.create({
 
 Property.create({
   name: 'updatedAt',
-  type: 'timestamp',
+  type: 'number',
   defaultValue: () => Math.floor(Date.now()/1000),
   computation: StateMachine.create({
     states: [initialState, updatedState],
@@ -546,7 +547,6 @@ Property.create({
 Property.create({
   name: 'totalRevenue',
   type: 'number',
-  defaultValue: () => 0,
   computation: Summation.create({
     record: OrderItemRelation,
     direction: 'source',  // Sum items for this order
@@ -558,7 +558,6 @@ Property.create({
 Property.create({
   name: 'totalAmount',
   type: 'number',
-  defaultValue: () => 0,
   computation: WeightedSummation.create({
     record: OrderItemRelation,
     direction: 'source',
@@ -599,7 +598,6 @@ import { Expression } from 'interaqt';
 Property.create({
   name: 'isRecentlyActive',
   type: 'boolean',
-  defaultValue: () => false,
   computation: RealTime.create({
     dataDeps: {
       _current: {
@@ -621,7 +619,6 @@ const currentTimestamp = Dictionary.create({
   name: 'currentTimestamp',
   type: 'number',
   collection: false,
-  defaultValue: () => 0,
   computation: RealTime.create({
     nextRecomputeTime: (now: number, dataDeps: any) => 1000, // Update every second
     callback: async (now: Expression, dataDeps: any) => {
@@ -636,7 +633,6 @@ const isAfterDeadline = Dictionary.create({
   name: 'isAfterDeadline',
   type: 'boolean',
   collection: false,
-  defaultValue: () => false,
   computation: RealTime.create({
     dataDeps: {
       config: {
@@ -658,7 +654,6 @@ const isExactMinute = Dictionary.create({
   name: 'isExactMinute',
   type: 'boolean',
   collection: false,
-  defaultValue: () => false,
   computation: RealTime.create({
     callback: async (now: Expression, dataDeps: any) => {
       const msPerMinute = 60000;
@@ -679,7 +674,6 @@ const totalUsersDict = Dictionary.create({
   name: 'totalUsers',
   type: 'number',
   collection: false,
-  defaultValue: () => 0,
   computation: Count.create({
     record: User
   })
@@ -703,7 +697,6 @@ const activeUserIds = Dictionary.create({
   name: 'activeUserIds',
   type: 'string',
   collection: true,
-  defaultValue: () => [],
   computation: Transform.create({
     record: User,
     attributeQuery: ['id', 'lastActivityTime'],

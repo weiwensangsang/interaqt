@@ -1,488 +1,302 @@
 # 宿舍管理系统交互设计
 
-## 交互设计概述
+## 交互设计原则
 
-本文档定义了宿舍管理系统的所有用户交互操作，每个交互代表用户可以执行的具体操作。设计分为两个阶段：
-- **Stage 1**: 核心业务逻辑，不包含权限检查和业务规则验证
-- **Stage 2**: 添加权限控制和业务规则验证
+### Stage 1 设计重点
+- **仅包含核心业务逻辑**：基础CRUD操作、状态转换、关系管理
+- **无权限检查**：先实现功能，后续添加权限控制
+- **无业务规则验证**：专注核心功能，后续添加复杂验证
+- **完整载荷定义**：确保所有必要参数都已定义
 
-## 宿舍管理交互
-
-### CreateDormitory - 创建宿舍
-**目的**: 管理员创建新宿舍
-
-**Payload字段**:
-- `name`: string (必需) - 宿舍名称
-- `capacity`: number (必需) - 床位数量
-
-**影响**:
-- 创建新的Dormitory实体
-- 自动创建对应数量的Bed实体
-- 建立DormitoryBedRelation关系
-- 所有床位初始状态为available
-
-**Stage 2 - 权限**: 仅admin可创建
-**Stage 2 - 业务规则**: 
-- capacity必须在4-6之间
-- 宿舍名称在系统中唯一
-- name不能为空
-
-```typescript
-export const CreateDormitory = Interaction.create({
-  name: 'CreateDormitory',
-  action: Action.create({ name: 'createDormitory' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'name', required: true }),
-      PayloadItem.create({ name: 'capacity', required: true })
-    ]
-  })
-});
-```
-
-### UpdateDormitory - 更新宿舍信息
-**目的**: 更新宿舍基本信息
-
-**Payload字段**:
-- `dormitoryId`: string (必需) - 宿舍ID
-- `name`: string (可选) - 新宿舍名称
-- `capacity`: number (可选) - 新床位数量
-
-**影响**:
-- 更新Dormitory实体属性
-- 如果容量变化，调整床位数量
-
-**Stage 2 - 权限**: 仅admin可更新
-**Stage 2 - 业务规则**: 
-- 容量不能小于当前入住人数
-- 新名称不能与其他宿舍重复
-
-### DeleteDormitory - 删除宿舍
-**目的**: 删除空闲宿舍
-
-**Payload字段**:
-- `dormitoryId`: string (必需) - 宿舍ID
-
-**影响**:
-- 删除Dormitory实体
-- 删除相关的Bed实体
-- 清理相关关系
-
-**Stage 2 - 权限**: 仅admin可删除
-**Stage 2 - 业务规则**: 宿舍必须为空 (无住户)
+### Stage 2 扩展项目
+- **权限检查**：基于角色的访问控制
+- **业务规则验证**：容量限制、状态检查、时间限制等
+- **复杂数据验证**：除基础字段要求外的复杂验证
 
 ## 用户管理交互
 
-### AssignDormHead - 指定宿舍长
-**目的**: 管理员指定用户为宿舍长
+### CreateUser
+**目的**: 创建新用户账号
+**载荷字段**:
+- `name`: string (必需) - 用户姓名
+- `email`: string (必需) - 邮箱地址
+- `phone`: string (必需) - 手机号码
+- `role`: string (必需) - 用户角色 (admin/dormHead/student)
 
-**Payload字段**:
-- `userId`: string (必需) - 用户ID
+**效果**:
+- 创建新User实体
+- 设置初始状态为active
+- 记录创建时间戳
+
+**Stage 2 - 权限**: 仅管理员可创建
+**Stage 2 - 业务规则**: 邮箱唯一性检查
+
+### AssignDormHead
+**目的**: 指定用户为宿舍长
+**载荷字段**:
+- `userId`: string (必需) - 目标用户ID
 - `dormitoryId`: string (必需) - 宿舍ID
 
-**影响**:
+**效果**:
 - 用户角色更新为dormHead
-- 建立DormitoryHeadRelation关系
-- 关系状态为active，设置任命时间
+- 创建UserDormitoryHeadRelation关系
+- 记录指定时间戳
 
-**Stage 2 - 权限**: 仅admin可指定
-**Stage 2 - 业务规则**:
-- 目标用户当前角色必须为student
-- 目标宿舍当前没有宿舍长
-- 用户未管理其他宿舍
+**Stage 2 - 权限**: 仅管理员可操作
+**Stage 2 - 业务规则**: 
+- 目标用户必须存在
+- 宿舍必须存在且未分配宿舍长
 
-```typescript
-export const AssignDormHead = Interaction.create({
-  name: 'AssignDormHead',
-  action: Action.create({ name: 'assignDormHead' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'userId', required: true }),
-      PayloadItem.create({ name: 'dormitoryId', required: true })
-    ]
-  })
-});
-```
+### GetUserInfo
+**目的**: 获取用户信息
+**载荷字段**:
+- `userId`: string (可选) - 目标用户ID，不提供则返回当前用户信息
 
-### RemoveDormHead - 撤销宿舍长
-**目的**: 撤销用户的宿舍长职务
-
-**Payload字段**:
-- `userId`: string (必需) - 宿舍长用户ID
-
-**影响**:
-- 用户角色更新为student
-- DormitoryHeadRelation关系状态更新为inactive
-
-**Stage 2 - 权限**: 仅admin可撤销
-
-### AssignUserToDormitory - 分配用户到宿舍
-**目的**: 管理员分配用户到宿舍的具体床位
-
-**Payload字段**:
-- `userId`: string (必需) - 用户ID
-- `dormitoryId`: string (必需) - 宿舍ID
-- `bedNumber`: number (必需) - 床位号
-
-**影响**:
-- 建立UserDormitoryRelation关系
-- 建立UserBedRelation关系
-- 床位状态更新为occupied
-- 宿舍当前入住人数+1
-
-**Stage 2 - 权限**: 仅admin可分配
-**Stage 2 - 业务规则**:
-- 宿舍有可用床位
-- 用户当前未分配到任何宿舍
-- 指定床位未被占用
-
-```typescript
-export const AssignUserToDormitory = Interaction.create({
-  name: 'AssignUserToDormitory',
-  action: Action.create({ name: 'assignUserToDormitory' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'userId', required: true }),
-      PayloadItem.create({ name: 'dormitoryId', required: true }),
-      PayloadItem.create({ name: 'bedNumber', required: true })
-    ]
-  })
-});
-```
-
-### RemoveUserFromDormitory - 从宿舍移除用户
-**目的**: 管理员将用户从宿舍移除
-
-**Payload字段**:
-- `userId`: string (必需) - 用户ID
-
-**影响**:
-- UserDormitoryRelation关系状态更新为inactive
-- UserBedRelation关系状态更新为inactive
-- 床位状态更新为available
-- 宿舍当前入住人数-1
-
-**Stage 2 - 权限**: 仅admin可移除
-
-## 扣分管理交互
-
-### CreateScoreRecord - 创建扣分记录
-**目的**: 宿舍长对本宿舍成员进行扣分
-
-**Payload字段**:
-- `targetUserId`: string (必需) - 被扣分用户ID
-- `ruleId`: string (必需) - 扣分规则ID
-- `reason`: string (必需) - 扣分原因
-- `score`: number (必需) - 扣分数值
-
-**影响**:
-- 创建新的ScoreRecord实体
-- 建立UserScoreRecordRelation关系 (目标用户)
-- 建立ScoreRecordOperatorRelation关系 (操作者)
-- 建立ScoreRecordRuleRelation关系 (规则)
-- 用户总扣分自动更新
+**效果**:
+- 返回用户基本信息
+- 包含相关的宿舍和分配信息
 
 **Stage 2 - 权限**: 
-- admin可对所有用户扣分
-- dormHead只能对本宿舍成员扣分
+- Admin: 所有用户
+- DormHead: 本宿舍学生
+- Student: 仅本人信息
 
+## 宿舍管理交互
+
+### CreateDormitory
+**目的**: 创建新宿舍
+**载荷字段**:
+- `name`: string (必需) - 宿舍名称
+- `bedCount`: number (必需) - 床位数量
+
+**效果**:
+- 创建新Dormitory实体
+- 自动创建对应数量的Bed实体
+- 所有床位初始状态为available
+
+**Stage 2 - 权限**: 仅管理员可创建
+**Stage 2 - 业务规则**: 床位数必须在4-6之间
+
+### AssignUserToBed
+**目的**: 分配用户到床位
+**载荷字段**:
+- `userId`: string (必需) - 用户ID
+- `bedId`: string (必需) - 床位ID
+
+**效果**:
+- 创建UserBedAssignment实体
+- 更新床位状态为occupied
+- 更新宿舍可用床位数
+
+**Stage 2 - 权限**: 仅管理员可操作
 **Stage 2 - 业务规则**:
-- 不能给自己扣分
-- 扣分数值必须大于0
-- 扣分规则必须存在且启用
-- 目标用户状态为active
+- 用户只能分配到一个床位
+- 床位必须可用
+- 宿舍不能超过容量
 
-```typescript
-export const CreateScoreRecord = Interaction.create({
-  name: 'CreateScoreRecord',
-  action: Action.create({ name: 'createScoreRecord' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'targetUserId', required: true }),
-      PayloadItem.create({ name: 'ruleId', required: true }),
-      PayloadItem.create({ name: 'reason', required: true }),
-      PayloadItem.create({ name: 'score', required: true })
-    ]
-  })
-});
-```
+### GetDormitoryInfo
+**目的**: 获取宿舍信息
+**载荷字段**:
+- `dormitoryId`: string (必需) - 宿舍ID
 
-### RevokeScoreRecord - 撤销扣分记录
-**目的**: 撤销错误的扣分记录
+**效果**:
+- 返回宿舍基本信息
+- 包含床位和住户信息
 
-**Payload字段**:
-- `recordId`: string (必需) - 扣分记录ID
-- `reason`: string (必需) - 撤销原因
+**Stage 2 - 权限**:
+- Admin: 所有宿舍
+- DormHead: 所管理宿舍
+- Student: 所居住宿舍
 
-**影响**:
-- ScoreRecord状态更新为revoked
-- 设置撤销时间和原因
-- 用户总扣分自动重新计算
+### GetDormitoryList
+**目的**: 获取宿舍列表
+**载荷字段**:
+- `status`: string (可选) - 过滤状态
 
-**Stage 2 - 权限**: 原操作者或admin可撤销
-**Stage 2 - 业务规则**: 记录状态必须为active
+**效果**:
+- 返回宿舍列表
+- 包含床位占用情况
 
-```typescript
-export const RevokeScoreRecord = Interaction.create({
-  name: 'RevokeScoreRecord',
-  action: Action.create({ name: 'revokeScoreRecord' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'recordId', required: true }),
-      PayloadItem.create({ name: 'reason', required: true })
-    ]
-  })
-});
-```
+**Stage 2 - 权限**: 基于角色的数据过滤
+
+## 行为管理交互
+
+### RecordBehavior
+**目的**: 记录用户违规行为
+**载荷字段**:
+- `userId`: string (必需) - 目标用户ID
+- `behaviorType`: string (必需) - 违规类型
+- `description`: string (必需) - 违规描述
+- `penaltyPoints`: number (必需) - 扣分数值
+
+**效果**:
+- 创建BehaviorRecord实体
+- 自动累计用户总扣分
+- 记录时间和记录人信息
+
+**Stage 2 - 权限**:
+- Admin: 所有学生
+- DormHead: 本宿舍学生
+
+**Stage 2 - 业务规则**: 扣分值必须为正数
+
+### GetBehaviorRecords
+**目的**: 查看行为记录
+**载荷字段**:
+- `userId`: string (可选) - 目标用户ID
+- `startDate`: number (可选) - 开始时间戳
+- `endDate`: number (可选) - 结束时间戳
+
+**效果**:
+- 返回行为记录列表
+- 包含扣分统计
+
+**Stage 2 - 权限**:
+- Admin: 所有记录
+- DormHead: 本宿舍学生记录
+- Student: 本人记录
 
 ## 踢出管理交互
 
-### CreateKickRequest - 创建踢出申请
-**目的**: 宿舍长申请踢出违规用户
-
-**Payload字段**:
-- `targetUserId`: string (必需) - 被申请踢出的用户ID
+### CreateExpulsionRequest
+**目的**: 申请踢出学生
+**载荷字段**:
+- `targetUserId`: string (必需) - 目标学生ID
 - `reason`: string (必需) - 申请理由
 
-**影响**:
-- 创建新的KickRequest实体
-- 建立KickRequestRequesterRelation关系
-- 建立KickRequestTargetRelation关系
-- 申请状态为pending
+**效果**:
+- 创建ExpulsionRequest实体
+- 设置状态为pending
+- 记录申请时间
 
-**Stage 2 - 权限**: 
-- 仅dormHead可申请
-- 目标用户必须在申请人管理的宿舍内
-
+**Stage 2 - 权限**: 宿舍长针对本宿舍学生
 **Stage 2 - 业务规则**:
-- 目标用户总扣分必须≥10
-- 目标用户状态为active
-- 目标用户没有pending状态的踢出申请
+- 目标学生扣分达到阈值(100分)
+- 同一学生不能有pending状态的申请
 
-```typescript
-export const CreateKickRequest = Interaction.create({
-  name: 'CreateKickRequest',
-  action: Action.create({ name: 'createKickRequest' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'targetUserId', required: true }),
-      PayloadItem.create({ name: 'reason', required: true })
-    ]
-  })
-});
-```
-
-### ProcessKickRequest - 处理踢出申请
-**目的**: 管理员审批踢出申请
-
-**Payload字段**:
+### ProcessExpulsionRequest
+**目的**: 处理踢出申请
+**载荷字段**:
 - `requestId`: string (必需) - 申请ID
-- `action`: string (必需) - 处理动作 (approve/reject)
-- `comment`: string (可选) - 审批意见
+- `decision`: string (必需) - 决定 (approved/rejected)
+- `adminNotes`: string (可选) - 管理员备注
 
-**影响**:
-- 更新KickRequest状态 (approved/rejected)
-- 建立KickRequestApproverRelation关系
-- 设置处理时间和审批人
+**效果**:
+- 更新申请状态
 - 如果批准：
-  - 目标用户状态更新为kicked
-  - 解除UserDormitoryRelation关系
-  - 解除UserBedRelation关系
-  - 床位状态更新为available
-  - 宿舍当前入住人数-1
+  - 用户状态变为expelled
+  - 床位分配状态变为inactive
+  - 床位状态变为available
+- 记录处理时间
 
-**Stage 2 - 权限**: 仅admin可处理
-**Stage 2 - 业务规则**:
-- 申请状态必须为pending
-- 申请未超过30天有效期
+**Stage 2 - 权限**: 仅管理员可处理
+**Stage 2 - 业务规则**: 申请状态必须为pending
 
+### GetExpulsionRequests
+**目的**: 查看踢出申请
+**载荷字段**:
+- `status`: string (可选) - 过滤状态
+
+**效果**:
+- 返回申请列表
+- 包含相关用户和申请人信息
+
+**Stage 2 - 权限**:
+- Admin: 所有申请
+- DormHead: 本人提交的申请
+
+## 实体引用交互
+
+以下交互涉及实体引用，需要使用`isRef: true`和`base`属性:
+
+### UpdateUserBedAssignment
+**目的**: 更新床位分配状态
+**载荷字段**:
+- `assignment`: UserBedAssignment (必需, isRef: true) - 分配记录引用
+- `status`: string (必需) - 新状态
+
+### UpdateBedStatus
+**目的**: 更新床位状态
+**载荷字段**:
+- `bed`: Bed (必需, isRef: true) - 床位引用
+- `status`: string (必需) - 新状态
+
+## 查询交互模式
+
+### 列表查询模式
 ```typescript
-export const ProcessKickRequest = Interaction.create({
-  name: 'ProcessKickRequest',
-  action: Action.create({ name: 'processKickRequest' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'requestId', required: true }),
-      PayloadItem.create({ name: 'action', required: true }),
-      PayloadItem.create({ name: 'comment' })
-    ]
-  })
-});
-```
-
-## 规则管理交互
-
-### CreateScoreRule - 创建扣分规则
-**目的**: 管理员创建新的扣分规则
-
-**Payload字段**:
-- `name`: string (必需) - 规则名称
-- `description`: string (必需) - 规则描述
-- `score`: number (必需) - 标准扣分数值
-- `category`: string (必需) - 违规类别
-
-**影响**:
-- 创建新的ScoreRule实体
-- 规则状态为active
-
-**Stage 2 - 权限**: 仅admin可创建
-**Stage 2 - 业务规则**:
-- 扣分数值必须大于0
-- 规则名称在系统中唯一
-
-```typescript
-export const CreateScoreRule = Interaction.create({
-  name: 'CreateScoreRule',
-  action: Action.create({ name: 'createScoreRule' }),
-  payload: Payload.create({
-    items: [
-      PayloadItem.create({ name: 'name', required: true }),
-      PayloadItem.create({ name: 'description', required: true }),
-      PayloadItem.create({ name: 'score', required: true }),
-      PayloadItem.create({ name: 'category', required: true })
-    ]
-  })
-});
-```
-
-### UpdateScoreRule - 更新扣分规则
-**目的**: 更新现有扣分规则
-
-**Payload字段**:
-- `ruleId`: string (必需) - 规则ID
-- `name`: string (可选) - 新规则名称
-- `description`: string (可选) - 新规则描述
-- `score`: number (可选) - 新扣分数值
-- `category`: string (可选) - 新违规类别
-- `isActive`: boolean (可选) - 是否启用
-
-**影响**:
-- 更新ScoreRule实体属性
-
-**Stage 2 - 权限**: 仅admin可更新
-**Stage 2 - 业务规则**: 不影响已有的扣分记录
-
-### DeactivateScoreRule - 停用扣分规则
-**目的**: 停用不再使用的扣分规则
-
-**Payload字段**:
-- `ruleId`: string (必需) - 规则ID
-
-**影响**:
-- ScoreRule的isActive更新为false
-
-**Stage 2 - 权限**: 仅admin可停用
-
-## 查询交互
-
-### GetDormitories - 获取宿舍列表
-**目的**: 查询宿舍信息
-
-**Payload字段**:
-- `status`: string (可选) - 宿舍状态过滤
-- `hasAvailableSpace`: boolean (可选) - 是否有空余床位
-
-**Stage 2 - 权限**: 
-- admin查看全部
-- dormHead查看自己管理的宿舍
-- student查看自己所在的宿舍
-
-```typescript
-export const GetDormitories = Interaction.create({
-  name: 'GetDormitories',
-  action: Action.create({ name: 'getDormitories' }),
+export const GetDormitoryList = Interaction.create({
+  name: 'GetDormitoryList',
+  action: Action.create({ name: 'getDormitoryList' }),
   payload: Payload.create({
     items: [
       PayloadItem.create({ name: 'status' }),
-      PayloadItem.create({ name: 'hasAvailableSpace' })
+      PayloadItem.create({ name: 'limit' }),
+      PayloadItem.create({ name: 'offset' })
     ]
   })
 });
 ```
 
-### GetDormitoryDetail - 获取宿舍详情
-**目的**: 查询特定宿舍的详细信息
+### 详情查询模式
+```typescript
+export const GetUserDetail = Interaction.create({
+  name: 'GetUserDetail',
+  action: Action.create({ name: 'getUserDetail' }),
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ 
+        name: 'user',
+        base: User,
+        isRef: true,
+        required: true 
+      })
+    ]
+  })
+});
+```
 
-**Payload字段**:
-- `dormitoryId`: string (必需) - 宿舍ID
+## 完整交互列表
 
-**Stage 2 - 权限**: 
-- admin查看全部
-- dormHead查看自己管理的宿舍
-- student查看自己所在的宿舍
+### 核心业务逻辑交互 (Stage 1)
+1. **CreateUser** - 创建用户
+2. **AssignDormHead** - 指定宿舍长
+3. **CreateDormitory** - 创建宿舍
+4. **AssignUserToBed** - 分配床位
+5. **RecordBehavior** - 记录违规行为
+6. **CreateExpulsionRequest** - 申请踢出
+7. **ProcessExpulsionRequest** - 处理踢出申请
 
-### GetUserScoreRecords - 获取用户扣分记录
-**目的**: 查询用户的扣分记录
+### 查询交互 (Stage 1)
+8. **GetUserInfo** - 获取用户信息
+9. **GetDormitoryInfo** - 获取宿舍信息
+10. **GetDormitoryList** - 获取宿舍列表
+11. **GetBehaviorRecords** - 查看行为记录
+12. **GetExpulsionRequests** - 查看踢出申请
 
-**Payload字段**:
-- `userId`: string (可选) - 用户ID，不提供则查询自己的
-- `status`: string (可选) - 记录状态过滤
-- `startDate`: number (可选) - 开始时间
-- `endDate`: number (可选) - 结束时间
+### 更新交互 (Stage 1)
+13. **UpdateUserBedAssignment** - 更新床位分配
+14. **UpdateBedStatus** - 更新床位状态
 
-**Stage 2 - 权限**:
-- admin查看所有用户记录
-- dormHead查看本宿舍成员记录
-- student仅查看自己的记录
+## 设计验证清单
 
-### GetKickRequests - 获取踢出申请列表
-**目的**: 查询踢出申请
-
-**Payload字段**:
-- `status`: string (可选) - 申请状态过滤
-- `dormitoryId`: string (可选) - 宿舍过滤
-
-**Stage 2 - 权限**:
-- admin查看所有申请
-- dormHead查看自己发起的申请
-- student查看针对自己的申请
-
-### GetScoreRules - 获取扣分规则列表
-**目的**: 查询扣分规则
-
-**Payload字段**:
-- `category`: string (可选) - 类别过滤
-- `isActive`: boolean (可选) - 是否启用过滤
-
-**Stage 2 - 权限**: 所有用户可查看
-
-## 交互依赖关系
-
-### 基础设置流程
-1. `CreateScoreRule` → 建立扣分规则
-2. `CreateDormitory` → 创建宿舍和床位
-3. `AssignDormHead` → 指定宿舍长
-4. `AssignUserToDormitory` → 分配用户
-
-### 日常管理流程
-1. `CreateScoreRecord` → 记录违规扣分
-2. 累积扣分达到阈值
-3. `CreateKickRequest` → 申请踢出
-4. `ProcessKickRequest` → 管理员审批
-
-### 异常处理流程
-1. `RevokeScoreRecord` → 撤销错误扣分
-2. `RemoveUserFromDormitory` → 强制移除用户
-3. `RemoveDormHead` → 撤销宿舍长职务
-
-## Stage实现策略
-
-### Stage 1: 核心业务逻辑
-- 实现所有Interaction的基本功能
-- 专注于数据创建、更新、删除操作
-- 不包含权限检查和业务规则验证
-- 使用有效数据和正确角色进行测试
-
-### Stage 2: 权限和业务规则
-- 在Interaction中添加condition检查
-- 实现基于角色的权限控制
-- 实现业务规则验证
-- 添加详细的错误处理
-
-## 验证清单
-- [ ] 所有用户操作都有对应的Interaction
-- [ ] Action只包含name标识符，无逻辑
-- [ ] Payload项目标记了正确的required标志
-- [ ] 集合类型使用isCollection: true
-- [ ] 基础版本不包含权限或约束
+- [ ] 所有用户操作都有对应交互
+- [ ] Action仅包含name标识符
+- [ ] 载荷项目有适当的required标记
+- [ ] 集合使用isCollection: true
+- [ ] 实体引用使用isRef和base
+- [ ] 未包含权限或约束条件
+- [ ] 载荷字段与测试用例匹配
 - [ ] TypeScript编译通过
+
+## Stage 2 扩展规划
+
+### 权限条件
+- 基于用户角色的访问控制
+- 基于关系的数据范围限制
+- 操作权限的细粒度控制
+
+### 业务规则条件
+- 容量和数量限制
+- 状态和流程约束
+- 时间和业务逻辑验证
