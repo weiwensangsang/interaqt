@@ -1059,4 +1059,303 @@ describe('Sum computed handle', () => {
     expect(territoryDataUpdated.softwareRevenue).toBe(205000); // 135k + 70k
     expect(territoryDataUpdated.newBusinessRevenue).toBe(190000); // 120k + 70k
   });
+
+  test('should calculate summation for merged entity correctly', async () => {
+    // Create input entities for merged entity
+    const saleEntity = Entity.create({
+      name: 'Sale',
+      properties: [
+        Property.create({name: 'productName', type: 'string'}),
+        Property.create({name: 'amount', type: 'number'}),
+        Property.create({name: 'date', type: 'string'}),
+        Property.create({name: 'category', type: 'string', defaultValue: () => 'product'})
+      ]
+    });
+
+    const serviceEntity = Entity.create({
+      name: 'Service',
+      properties: [
+        Property.create({name: 'serviceName', type: 'string'}),
+        Property.create({name: 'amount', type: 'number'}),
+        Property.create({name: 'date', type: 'string'}),
+        Property.create({name: 'category', type: 'string', defaultValue: () => 'service'})
+      ]
+    });
+
+    const subscriptionEntity = Entity.create({
+      name: 'Subscription',
+      properties: [
+        Property.create({name: 'planName', type: 'string'}),
+        Property.create({name: 'amount', type: 'number'}),
+        Property.create({name: 'date', type: 'string'}),
+        Property.create({name: 'recurring', type: 'boolean', defaultValue: () => true}),
+        Property.create({name: 'category', type: 'string', defaultValue: () => 'subscription'})
+      ]
+    });
+
+    // Create merged entity: Revenue (combining Sale, Service, and Subscription)
+    const revenueEntity = Entity.create({
+      name: 'Revenue',
+      inputEntities: [saleEntity, serviceEntity, subscriptionEntity]
+    });
+
+    const entities = [saleEntity, serviceEntity, subscriptionEntity, revenueEntity];
+
+    // Create dictionary items to store sums
+    const dictionary = [
+      Dictionary.create({
+        name: 'totalRevenue',
+        type: 'number',
+        collection: false,
+        computation: Summation.create({
+          record: revenueEntity,
+          attributeQuery: ['amount']
+        })
+      }),
+
+
+    ];
+
+    // Setup system and controller
+    const system = new MonoSystem();
+    system.conceptClass = KlassByName;
+    const controller = new Controller({
+      system: system,
+      entities: entities,
+      dict: dictionary,
+      relations: [],
+      activities: [],
+      interactions: []
+    });
+    await controller.setup(true);
+
+    // Initial sums should be 0
+    let totalRevenue = await system.storage.get(DICTIONARY_RECORD, 'totalRevenue');
+    
+    expect(totalRevenue).toBe(0);
+
+    // Create sales records
+    await system.storage.create('Sale', {
+      productName: 'Laptop',
+      amount: 1500,
+      date: '2024-01-01'
+    });
+
+    await system.storage.create('Sale', {
+      productName: 'Mouse',
+      amount: 50,
+      date: '2024-01-02'
+    });
+
+    // Create service records
+    await system.storage.create('Service', {
+      serviceName: 'Consulting',
+      amount: 2000,
+      date: '2024-01-03'
+    });
+
+    await system.storage.create('Service', {
+      serviceName: 'Support',
+      amount: 500,
+      date: '2024-01-04'
+    });
+
+    // Create subscription records
+    await system.storage.create('Subscription', {
+      planName: 'Premium',
+      amount: 100,
+      date: '2024-01-05'
+    });
+
+    await system.storage.create('Subscription', {
+      planName: 'Basic',
+      amount: 50,
+      date: '2024-01-06',
+      recurring: false
+    });
+
+    // Check the sums
+    totalRevenue = await system.storage.get(DICTIONARY_RECORD, 'totalRevenue');
+    
+    expect(totalRevenue).toBe(4200); // 1500 + 50 + 2000 + 500 + 100 + 50
+
+    // Update a sale amount
+    const sales = await system.storage.find('Sale', 
+      BoolExp.atom({key: 'productName', value: ['=', 'Laptop']}),
+      undefined,
+      ['id']
+    );
+    
+    await system.storage.update('Sale',
+      MatchExp.atom({key: 'id', value: ['=', sales[0].id]}),
+      { amount: 1800 }
+    );
+
+    // Check updated sums
+    totalRevenue = await system.storage.get(DICTIONARY_RECORD, 'totalRevenue');
+    
+    expect(totalRevenue).toBe(4500); // Increased by 300
+
+    // Delete a service
+    const services = await system.storage.find('Service',
+      BoolExp.atom({key: 'serviceName', value: ['=', 'Support']}),
+      undefined,
+      ['id']
+    );
+    
+    await system.storage.delete('Service',
+      MatchExp.atom({key: 'id', value: ['=', services[0].id]})
+    );
+
+    // Check final sums
+    totalRevenue = await system.storage.get(DICTIONARY_RECORD, 'totalRevenue');
+    
+    expect(totalRevenue).toBe(4000); // Decreased by 500
+  });
+
+  test('should work with merged relation in property level computation', async () => {
+    // Define entities
+    const customerEntity = Entity.create({
+      name: 'Customer',
+      properties: [
+        Property.create({name: 'name', type: 'string'}),
+        Property.create({name: 'email', type: 'string'})
+      ]
+    });
+
+    const purchaseEntity = Entity.create({
+      name: 'Purchase',
+      properties: [
+        Property.create({name: 'product', type: 'string'}),
+        Property.create({name: 'amount', type: 'number'}),
+        Property.create({name: 'date', type: 'string'})
+      ]
+    });
+
+    // Create input relations
+    const customerOnlinePurchaseRelation = Relation.create({
+      name: 'CustomerOnlinePurchase',
+      source: customerEntity,
+      sourceProperty: 'onlinePurchases',
+      target: purchaseEntity,
+      targetProperty: 'onlineCustomer',
+      type: '1:n',
+      properties: [
+        Property.create({ name: 'channel', type: 'string', defaultValue: () => 'online' }),
+        Property.create({ name: 'paymentMethod', type: 'string', defaultValue: () => 'credit' })
+      ]
+    });
+
+    const customerStorePurchaseRelation = Relation.create({
+      name: 'CustomerStorePurchase',
+      source: customerEntity,
+      sourceProperty: 'storePurchases',
+      target: purchaseEntity,
+      targetProperty: 'storeCustomer',
+      type: '1:n',
+      properties: [
+        Property.create({ name: 'channel', type: 'string', defaultValue: () => 'store' }),
+        Property.create({ name: 'storeName', type: 'string', defaultValue: () => 'Main St' })
+      ]
+    });
+
+    // Create merged relation
+    const customerAllPurchasesRelation = Relation.create({
+      name: 'CustomerAllPurchases',
+      sourceProperty: 'allPurchases',
+      targetProperty: 'anyCustomer',
+      inputRelations: [customerOnlinePurchaseRelation, customerStorePurchaseRelation]
+    });
+
+    // Add summation computation to customer entity
+    customerEntity.properties.push(
+      Property.create({
+        name: 'totalPurchaseAmount',
+        type: 'number',
+        computation: Summation.create({
+          record: customerAllPurchasesRelation,
+          attributeQuery: [['target', {attributeQuery: ['amount']}]]
+        })
+      })
+    );
+
+    const entities = [customerEntity, purchaseEntity];
+    const relations = [customerOnlinePurchaseRelation, customerStorePurchaseRelation, customerAllPurchasesRelation];
+
+    // Setup system
+    const system = new MonoSystem();
+    system.conceptClass = KlassByName;
+    const controller = new Controller({
+      system: system,
+      entities: entities,
+      relations: relations,
+      activities: [],
+      interactions: []
+    });
+    await controller.setup(true);
+
+    // Create test data
+    const customer1 = await system.storage.create('Customer', {
+      name: 'Alice Smith',
+      email: 'alice@example.com'
+    });
+
+    const purchase1 = await system.storage.create('Purchase', {
+      product: 'Laptop',
+      amount: 1200,
+      date: '2024-01-01'
+    });
+
+    const purchase2 = await system.storage.create('Purchase', {
+      product: 'Mouse',
+      amount: 50,
+      date: '2024-01-02'
+    });
+
+    const purchase3 = await system.storage.create('Purchase', {
+      product: 'Keyboard',
+      amount: 150,
+      date: '2024-01-03'
+    });
+
+    // Create relations through input relations
+    await system.storage.create('CustomerOnlinePurchase', {
+      source: { id: customer1.id },
+      target: { id: purchase1.id }
+    });
+
+    await system.storage.create('CustomerStorePurchase', {
+      source: { id: customer1.id },
+      target: { id: purchase2.id }
+    });
+
+    await system.storage.create('CustomerOnlinePurchase', {
+      source: { id: customer1.id },
+      target: { id: purchase3.id }
+    });
+
+    // Check total amount
+    const customerData = await system.storage.findOne('Customer',
+      MatchExp.atom({ key: 'id', value: ['=', customer1.id] }),
+      undefined,
+      ['id', 'name', 'totalPurchaseAmount']
+    );
+
+    expect(customerData.totalPurchaseAmount).toBe(1400); // 1200 + 50 + 150
+
+    // Update a purchase amount
+    await system.storage.update('Purchase',
+      MatchExp.atom({ key: 'id', value: ['=', purchase2.id] }),
+      { amount: 80 }
+    );
+
+    // Check updated total
+    const customerData2 = await system.storage.findOne('Customer',
+      MatchExp.atom({ key: 'id', value: ['=', customer1.id] }),
+      undefined,
+      ['id', 'name', 'totalPurchaseAmount']
+    );
+
+    expect(customerData2.totalPurchaseAmount).toBe(1430); // 1200 + 80 + 150
+  });
 }); 

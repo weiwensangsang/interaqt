@@ -830,5 +830,370 @@ describe('Every computed handle', () => {
     expect(factoryDataFinal.allBatchesPassedQC).toBe(false); // batch5 failed
     // Morning shift now includes batch5 which failed
     expect(factoryDataFinal.allMorningShiftPassed).toBe(false); // batch5 failed
-  }); 
+  });
+
+  test('should calculate every for merged entity correctly - conditions on merged entities not supported', async () => {
+    // Create input entities for merged entity
+    const onlineOrderEntity = Entity.create({
+      name: 'OnlineOrder',
+      properties: [
+        Property.create({name: 'orderNumber', type: 'string'}),
+        Property.create({name: 'isDelivered', type: 'boolean', defaultValue: () => false}),
+        Property.create({name: 'isPaid', type: 'boolean', defaultValue: () => false}),
+        Property.create({name: 'orderType', type: 'string', defaultValue: () => 'online'})
+      ]
+    });
+
+    const storeOrderEntity = Entity.create({
+      name: 'StoreOrder',
+      properties: [
+        Property.create({name: 'orderNumber', type: 'string'}),
+        Property.create({name: 'isDelivered', type: 'boolean', defaultValue: () => true}),
+        Property.create({name: 'isPaid', type: 'boolean', defaultValue: () => true}),
+        Property.create({name: 'orderType', type: 'string', defaultValue: () => 'store'})
+      ]
+    });
+
+    const phoneOrderEntity = Entity.create({
+      name: 'PhoneOrder',
+      properties: [
+        Property.create({name: 'orderNumber', type: 'string'}),
+        Property.create({name: 'isDelivered', type: 'boolean', defaultValue: () => false}),
+        Property.create({name: 'isPaid', type: 'boolean', defaultValue: () => false}),
+        Property.create({name: 'orderType', type: 'string', defaultValue: () => 'phone'})
+      ]
+    });
+
+    // Create merged entity: AllOrder (combining all order types) - avoid SQL reserved word
+    const orderEntity = Entity.create({
+      name: 'AllOrder',
+      inputEntities: [onlineOrderEntity, storeOrderEntity, phoneOrderEntity]
+    });
+
+    const entities = [onlineOrderEntity, storeOrderEntity, phoneOrderEntity, orderEntity];
+
+    // Create dictionary items to check conditions
+    const dictionary = [
+      Dictionary.create({
+        name: 'allOrdersDelivered',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: orderEntity,
+          attributeQuery: ['isDelivered'],
+          callback: (order: any) => order.isDelivered === true,
+          notEmpty: false
+        })
+      }),
+      Dictionary.create({
+        name: 'allOrdersPaid',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: orderEntity,
+          attributeQuery: ['isPaid'],
+          callback: (order: any) => {
+            return order.isPaid === true
+          },
+          notEmpty: false
+        })
+      }),
+      Dictionary.create({
+        name: 'allOnlineOrdersDelivered',
+        type: 'boolean',
+        collection: false,
+        computation: Every.create({
+          record: orderEntity,
+          attributeQuery: ['isDelivered', 'orderType'],
+          callback: (order: any) => {
+            // 是 online 才判断 isDelivered，phone 和 store 要忽略 isDelivered
+            if (order.orderType === 'online') {
+              return order.isDelivered === true
+            }
+            return true
+          },
+          notEmpty: false
+        })
+      })
+    ];
+
+    // Setup system and controller
+    const system = new MonoSystem();
+    system.conceptClass = KlassByName;
+    const controller = new Controller({
+      system: system,
+      entities: entities,
+      dict: dictionary,
+      relations: [],
+      activities: [],
+      interactions: []
+    });
+    await controller.setup(true);
+
+    // Initially with no orders, every should return true (vacuous truth)
+    let allDelivered = await system.storage.get(DICTIONARY_RECORD, 'allOrdersDelivered');
+    let allPaid = await system.storage.get(DICTIONARY_RECORD, 'allOrdersPaid');
+    let allOnlineDelivered = await system.storage.get(DICTIONARY_RECORD, 'allOnlineOrdersDelivered');
+    
+    expect(allDelivered).toBe(true);
+    expect(allPaid).toBe(true);
+    expect(allOnlineDelivered).toBe(true);
+
+    // Create online orders
+    await system.storage.create('OnlineOrder', {
+      orderNumber: 'ON001',
+      isDelivered: true,
+      isPaid: true
+    });
+
+    await system.storage.create('OnlineOrder', {
+      orderNumber: 'ON002',
+      isDelivered: false,
+      isPaid: true
+    });
+
+    // Create store orders (delivered and paid by default)
+    await system.storage.create('StoreOrder', {
+      orderNumber: 'ST001'
+    });
+
+    await system.storage.create('StoreOrder', {
+      orderNumber: 'ST002'
+    });
+
+    // Create phone orders
+    await system.storage.create('PhoneOrder', {
+      orderNumber: 'PH001',
+      isDelivered: true,
+      isPaid: true
+    });
+
+    // Check the conditions
+    allDelivered = await system.storage.get(DICTIONARY_RECORD, 'allOrdersDelivered');
+    allPaid = await system.storage.get(DICTIONARY_RECORD, 'allOrdersPaid');
+    allOnlineDelivered = await system.storage.get(DICTIONARY_RECORD, 'allOnlineOrdersDelivered');
+    
+    expect(allDelivered).toBe(false); // ON002 is not delivered
+    expect(allPaid).toBe(true); // All orders are paid
+    expect(allOnlineDelivered).toBe(false); // ON002 is not delivered
+
+    // Update the undelivered online order
+    const undeliveredOrders = await system.storage.find('OnlineOrder',
+      BoolExp.atom({key: 'orderNumber', value: ['=', 'ON002']}),
+      undefined,
+      ['id']
+    );
+    
+    await system.storage.update('OnlineOrder',
+      MatchExp.atom({key: 'id', value: ['=', undeliveredOrders[0].id]}),
+      { isDelivered: true }
+    );
+
+    // Now all should be delivered
+    allDelivered = await system.storage.get(DICTIONARY_RECORD, 'allOrdersDelivered');
+    allOnlineDelivered = await system.storage.get(DICTIONARY_RECORD, 'allOnlineOrdersDelivered');
+    
+    expect(allDelivered).toBe(true);
+    expect(allOnlineDelivered).toBe(true);
+
+    // Add an unpaid phone order
+    await system.storage.create('PhoneOrder', {
+      orderNumber: 'PH002',
+      isDelivered: true,
+      isPaid: false
+    });
+
+    // Check that not all orders are paid now
+    allPaid = await system.storage.get(DICTIONARY_RECORD, 'allOrdersPaid');
+    expect(allPaid).toBe(false);
+    
+    // Test that the online-only check still works
+    allOnlineDelivered = await system.storage.get(DICTIONARY_RECORD, 'allOnlineOrdersDelivered');
+    expect(allOnlineDelivered).toBe(true); // All online orders are still delivered
+  });
+
+  test('should work with merged relation in property level computation', async () => {
+    // Define entities
+    const projectEntity = Entity.create({
+      name: 'Project',
+      properties: [
+        Property.create({name: 'name', type: 'string'}),
+        Property.create({name: 'status', type: 'string'})
+      ]
+    });
+
+    const milestoneEntity = Entity.create({
+      name: 'Milestone',
+      properties: [
+        Property.create({name: 'title', type: 'string'}),
+        Property.create({name: 'completed', type: 'boolean'}),
+        Property.create({name: 'importance', type: 'string'})
+      ]
+    });
+
+    // Create input relations
+    const projectPrimaryMilestoneRelation = Relation.create({
+      name: 'ProjectPrimaryMilestone',
+      source: projectEntity,
+      sourceProperty: 'primaryMilestones',
+      target: milestoneEntity,
+      targetProperty: 'primaryProject',
+      type: '1:n',
+      properties: [
+        Property.create({ name: 'milestoneType', type: 'string', defaultValue: () => 'primary' }),
+        Property.create({ name: 'addedAt', type: 'string', defaultValue: () => '2024-01-01' })
+      ]
+    });
+
+    const projectSecondaryMilestoneRelation = Relation.create({
+      name: 'ProjectSecondaryMilestone',
+      source: projectEntity,
+      sourceProperty: 'secondaryMilestones',
+      target: milestoneEntity,
+      targetProperty: 'secondaryProject',
+      type: '1:n',
+      properties: [
+        Property.create({ name: 'milestoneType', type: 'string', defaultValue: () => 'secondary' }),
+        Property.create({ name: 'addedAt', type: 'string', defaultValue: () => '2024-01-01' })
+      ]
+    });
+
+    // Create merged relation
+    const projectAllMilestonesRelation = Relation.create({
+      name: 'ProjectAllMilestones',
+      sourceProperty: 'allMilestones',
+      targetProperty: 'anyProject',
+      inputRelations: [projectPrimaryMilestoneRelation, projectSecondaryMilestoneRelation]
+    });
+
+    // Add every computation to project entity
+    projectEntity.properties.push(
+      Property.create({
+        name: 'allMilestonesCompleted',
+        type: 'boolean',
+        computation: Every.create({
+          record: projectAllMilestonesRelation,
+          attributeQuery: [['target', {attributeQuery: ['completed']}]],
+          callback: (relation: any) => {
+            return relation.target.completed === true;
+          }
+        })
+      }),
+      Property.create({
+        name: 'allCriticalMilestonesCompleted',
+        type: 'boolean',
+        computation: Every.create({
+          record: projectAllMilestonesRelation,
+          attributeQuery: [['target', {attributeQuery: ['completed', 'importance']}]],
+          callback: (relation: any) => {
+            // Only check critical milestones
+            return relation.target.importance !== 'critical' || relation.target.completed === true;
+          }
+        })
+      })
+    );
+
+    const entities = [projectEntity, milestoneEntity];
+    const relations = [projectPrimaryMilestoneRelation, projectSecondaryMilestoneRelation, projectAllMilestonesRelation];
+
+    // Setup system
+    const system = new MonoSystem(new PGLiteDB());
+    system.conceptClass = KlassByName;
+    const controller = new Controller({
+      system: system,
+      entities: entities,
+      relations: relations,
+      activities: [],
+      interactions: []
+    });
+    await controller.setup(true);
+
+    // Create test data
+    const project1 = await system.storage.create('Project', {
+      name: 'Website Redesign',
+      status: 'active'
+    });
+
+    const milestone1 = await system.storage.create('Milestone', {
+      title: 'Design Complete',
+      completed: true,
+      importance: 'critical'
+    });
+
+    const milestone2 = await system.storage.create('Milestone', {
+      title: 'Backend API',
+      completed: true,
+      importance: 'critical'
+    });
+
+    const milestone3 = await system.storage.create('Milestone', {
+      title: 'Testing',
+      completed: false,
+      importance: 'normal'
+    });
+
+    // Create relations through input relations
+    await system.storage.create('ProjectPrimaryMilestone', {
+      source: { id: project1.id },
+      target: { id: milestone1.id }
+    });
+
+    await system.storage.create('ProjectPrimaryMilestone', {
+      source: { id: project1.id },
+      target: { id: milestone2.id }
+    });
+
+    await system.storage.create('ProjectSecondaryMilestone', {
+      source: { id: project1.id },
+      target: { id: milestone3.id }
+    });
+
+    // Check computations
+    let projectData = await system.storage.findOne('Project',
+      MatchExp.atom({ key: 'id', value: ['=', project1.id] }),
+      undefined,
+      ['id', 'name', 'allMilestonesCompleted', 'allCriticalMilestonesCompleted']
+    );
+
+    expect(projectData.allMilestonesCompleted).toBe(false); // milestone3 is not completed (returns 0)
+    expect(projectData.allCriticalMilestonesCompleted).toBe(true); // all critical ones are completed (returns 1)
+
+    // Complete the remaining milestone
+    await system.storage.update('Milestone',
+      MatchExp.atom({ key: 'id', value: ['=', milestone3.id] }),
+      { completed: true }
+    );
+
+    // Check updated computations
+    projectData = await system.storage.findOne('Project',
+      MatchExp.atom({ key: 'id', value: ['=', project1.id] }),
+      undefined,
+      ['id', 'name', 'allMilestonesCompleted', 'allCriticalMilestonesCompleted']
+    );
+
+    expect(projectData.allMilestonesCompleted).toBe(true); // now all are completed (returns 1)
+    expect(projectData.allCriticalMilestonesCompleted).toBe(true); // still true (returns 1)
+
+    // Add a new critical milestone that's not completed
+    const milestone4 = await system.storage.create('Milestone', {
+      title: 'Deployment',
+      completed: false,
+      importance: 'critical'
+    });
+
+    await system.storage.create('ProjectPrimaryMilestone', {
+      source: { id: project1.id },
+      target: { id: milestone4.id }
+    });
+
+    // Check updated computations
+    projectData = await system.storage.findOne('Project',
+      MatchExp.atom({ key: 'id', value: ['=', project1.id] }),
+      undefined,
+      ['id', 'name', 'allMilestonesCompleted', 'allCriticalMilestonesCompleted']
+    );
+
+    expect(projectData.allMilestonesCompleted).toBe(false); // new incomplete milestone (returns 0)
+    expect(projectData.allCriticalMilestonesCompleted).toBe(false); // new critical milestone not completed (returns 0)
+  });
 }); 

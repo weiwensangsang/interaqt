@@ -1,9 +1,12 @@
 import { LinkMapItem, MapData, RecordAttribute, RecordMapItem, ValueAttribute } from "./EntityToTableMap.js";
 import { assert } from "../utils.js";
-import { EntityInstance, RelationInstance, PropertyInstance } from "@shared";
+import { EntityInstance, RelationInstance, PropertyInstance, RefContainer } from "@shared";
 import { ID_ATTR, ROW_ID_ATTR, Database } from "@runtime";
 import { isRelation } from "./util.js";
 import { MatchExpressionData, MatchExp } from "./MatchExp.js";
+import { Entity, Property, Relation } from "@shared";
+import { BoolExp } from "@shared";
+import { processMergedItems } from "./MergedItemProcessor.js";
 
 // Define the types we need
 
@@ -13,7 +16,7 @@ type ColumnData = {
     fieldType?:string,
     collection?:boolean,
     notNull?: boolean,
-    defaultValue?: () =>any
+    defaultValue?: (record: any, recordName: string) => any
     attribute?: ValueAttribute
 }
 
@@ -251,9 +254,17 @@ export class DBSetup {
         const { baseEntity, matchExpression } = entity
 
         const { resolvedBaseRecordName, resolvedMatchExpression } = this.resolveRootBaseRecordNameAndMatchExpression(entity)
+        
+        // 获取实际的表名
+        // 如果 base entity 已经在 map.records 中，使用它的 table
+        // 否则使用 resolvedBaseRecordName
+        let tableName = resolvedBaseRecordName;
+        if (resolvedBaseRecordName && this.map.records[resolvedBaseRecordName]) {
+            tableName = this.map.records[resolvedBaseRecordName].table || resolvedBaseRecordName;
+        }
 
         return {
-            table: resolvedBaseRecordName,
+            table: tableName,
             isFilteredEntity: !!baseEntity,
             attributes: {},
             baseRecordName: baseEntity?.name,
@@ -385,7 +396,12 @@ export class DBSetup {
         return `${relationName}_${isSource? 'source' :'target'}`
     }
 
+    
+
     buildMap() {
+        // 0. 预处理：将 merged entity 和 merged relation 转化为 filtered entity/relation
+        this.processMergedItems();
+        
         // 1. 按照范式生成基础 entity record
         this.entities.forEach(entity => {
             assert(!this.map.records[entity.name], `entity name ${entity.name} is duplicated`)
@@ -476,6 +492,19 @@ export class DBSetup {
         this.assignTableAndField()
 
     }
+    /**
+     * 统一处理 merged entities 和 merged relations
+     */
+    private processMergedItems() {
+        const result = processMergedItems(
+            this.entities,
+            this.relations,
+        );
+        
+        this.entities = result.entities;
+        this.relations = result.relations;
+    }
+
     mergeRecords() {
         // 基本合表策略:
         // 1. 从用户指定的 mergeLinks 里面开始合并三表合一
@@ -608,7 +637,11 @@ export class DBSetup {
 
         // 2. 给所有 record 分配 table，给 value 字段分配 field
         Object.entries(this.map.records).forEach(([recordName, record]) => {
-            record.table = this.recordToTableMap.get(recordName)!
+            // 对于 filtered entities，不要覆盖它们的 table
+            // 因为它们不在 recordToTableMap 中
+            if (!record.isFilteredEntity && !record.isFilteredRelation) {
+                record.table = this.recordToTableMap.get(recordName)!
+            }
             Object.entries(record.attributes).forEach(([attributeName, attributeData]) => {
                 if ((attributeData as RecordAttribute).isRecord) return
                 const valueAttributeData = attributeData as ValueAttribute

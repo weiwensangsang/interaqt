@@ -778,7 +778,10 @@ ${innerQuerySQL}
             events?.push({
                 type: 'create',
                 recordName: newEntityData.recordName,
-                record: newRawDataWithNewIds
+                record: {
+                    ...newEntityData.defaultValues,
+                    ...newRawDataWithNewIds
+                }
             })
         } else {
             // 可能只是更新关系，所以这里一定要有自身的 value 才算是 update 自己
@@ -828,7 +831,7 @@ ${innerQuerySQL}
             }
         }
 
-
+        // FIXME 如果不同，才需要 merge。现在不知道为什么 relation 和 source 记录上出现了个 & 关系数据。
         const newEntityDataWithIds = newEntityData.merge(newRawDataWithNewIds)
 
         // 2. 处理需要 flashOut 的数据
