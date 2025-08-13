@@ -3,7 +3,6 @@ import { Router, createMemoryHistory, createBrowserHistory } from 'router0';
 import { App as EntityRelationPanel } from './layered-graph/App';
 import { InteractionPanel } from './interaction-panel/InteractionPanel';
 import { EntityInstance, RelationInstance, InteractionInstance } from '@shared';
-import { Counter } from './Counter';
 
 type DashboardProps = {
     entities: EntityInstance[]
@@ -182,9 +181,6 @@ export function Dashboard({ entities, relations, interactions }: DashboardProps,
                     {renderContent}
                 </div>
             </div>
-            
-            {/* 全局计数器 */}
-            <Counter />
         </ContextProvider>
     );
 } 
