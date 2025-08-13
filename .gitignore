@@ -24,6 +24,8 @@ nohup.out
 _site
 _data
 dist
+!examples/**/dist
+!examples/**/dist/**
 lib
 typings
 coverage
