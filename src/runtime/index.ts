@@ -5,6 +5,7 @@ export * from './SQLite.js'
 export * from './PostgreSQL.js'
 export * from './PGLite.js'
 export * from './Mysql.js'
+export * from './CloudflareD1.js'
 export * from './asyncInteractionContext.js'
 // Export everything from util except indexBy to avoid conflict with shared module
 export { 

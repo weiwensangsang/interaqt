@@ -65,9 +65,33 @@ export abstract class BaseKlass<TInstance extends IInstance, TCreateArgs> {
   }
 }
 
-// 生成 UUID 的辅助函数
+class DeterministicUUIDGenerator {
+  private counter = 0;
+  private processId: string;
+  
+  constructor() {
+    this.processId = '1234';
+  }
+  
+  generate(): string {
+    this.counter++;
+    
+    const timeLow = (this.counter & 0xffffffff).toString(16).padStart(8, '0');
+    const timeMid = ((this.counter >> 32) & 0xffff).toString(16).padStart(4, '0');
+    const timeHigh = ((this.counter >> 48) & 0x0fff | 0x4000).toString(16).padStart(4, '0');
+    
+    const clockSeq = (0x8000 | (this.counter & 0x3fff)).toString(16).padStart(4, '0');
+    const node = this.processId.padEnd(12, '0').slice(0, 12);
+    
+    return `${timeLow}-${timeMid}-${timeHigh}-${clockSeq}-${node}`;
+  }
+}
+
+const uuidGenerator = new DeterministicUUIDGenerator();
+
 export function generateUUID(options?: { uuid?: string }): string {
-  return options?.uuid || crypto.randomUUID();
+  if (options?.uuid) return options.uuid;
+    return uuidGenerator.generate();
 }
 
 // 概念相关的类型

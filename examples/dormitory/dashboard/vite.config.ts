@@ -2,6 +2,14 @@ import { defineConfig } from 'vite';
 import path from 'path';
 
 export default defineConfig({
+    server: {
+        host: true,
+        cors: true
+    },
+    build: {
+        outDir: '../deploy/frontend-dist',
+        emptyOutDir: true
+    },
     esbuild: {
         jsxFactory: 'createElement',
         jsxFragment: 'Fragment',
