@@ -113,6 +113,11 @@ Property.create(config: PropertyConfig): PropertyInstance
 - `config.computed` (function, optional): Computed property function
 - `config.computation` (Computation, optional): Property computed data
 
+**⚠️ IMPORTANT: Timestamp Properties**
+When creating timestamp properties with `defaultValue`, **always convert milliseconds to seconds** using `Math.floor(Date.now()/1000)`:
+- ❌ WRONG: `defaultValue: () => Date.now()` - Returns milliseconds, database doesn't support this!
+- ✅ CORRECT: `defaultValue: () => Math.floor(Date.now()/1000)` - Returns Unix timestamp in seconds
+
 **Examples**
 ```typescript
 // Basic property
@@ -121,11 +126,12 @@ const username = Property.create({
     type: 'string'
 })
 
-// Property with default value
+// Property with default value - timestamp
+// 🔴 CRITICAL: Always use seconds for timestamps, not milliseconds!
 const createdAt = Property.create({
     name: 'createdAt',
     type: 'number',
-    defaultValue: () => Math.floor(Date.now()/1000)
+    defaultValue: () => Math.floor(Date.now()/1000)  // Convert to seconds - database doesn't support milliseconds!
 })
 
 // Computed property
@@ -676,6 +682,27 @@ StateMachine.create(config: StateMachineConfig): StateMachineInstance
 - `config.transfers` (StateTransfer[], required): List of state transfers
 - `config.defaultState` (StateNode, required): Default state
 
+**Important: Initial Value Handling**
+
+When using StateMachine for entity/relation properties:
+- If the property's initial value is set when the entity/relation is created, handle it in the entity/relation's computation
+- If the StateMachine needs to save or modify this initial value, explicitly define `computeValue` on the `defaultState` to handle it
+
+```typescript
+// Example: StateMachine handling initial value
+const MyStateMachine = StateMachine.create({
+    states: [pendingState, activeState],
+    transfers: [...],
+    defaultState: StateNode.create({
+        name: 'pending',
+        computeValue: (lastValue) => {
+            // Explicitly handle initial value
+            return lastValue || 'initial_state_value';
+        }
+    })
+});
+```
+
 **Examples**
 ```typescript
 // First declare state nodes
@@ -728,7 +755,7 @@ const RelationStateMachine = StateMachine.create({
             next: relationNotExistsState,
             computeTarget: async function(this: Controller, event) {
                 // Find existing relation to remove
-                const relation = await this.system.storage.findOneRelationByName('UserTargetRelation',
+                const relation = await this.system.storage.findOneRelationByName(UserTargetRelation.name,
                     this.globals.MatchExp.atom({
                         key: 'source.id',
                         value: ['=', event.user.id]
@@ -998,7 +1025,7 @@ Custom.create(config: CustomConfig): CustomInstance
   ): Promise<any>
   ```
 - `config.dataDeps` (object, optional): Data dependency configuration, format: `{[key: string]: DataDep}`. 
-  - For Property computation: use `type: 'property'` with `property: 'relationPropertyName'`
+  - For Property computation: use `type: 'property'` with `attributeQuery` to access current record and its relations
   - For Dictionary computation: use `type: 'records'` with `source: EntityName`
   - For accessing dictionaries: use `type: 'global'` with `source: DictionaryInstance`
 - `config.useLastValue` (boolean, optional): Whether to use last computed value in incremental computation
@@ -1078,7 +1105,7 @@ const counterDict = Dictionary.create({
                 total,
                 count: dataDeps.counters.length,
                 lastChange: diff,
-                timestamp: Date.now()
+                timestamp: Math.floor(Date.now()/1000)  // In seconds
             };
         },
         getDefaultValue: function() {
@@ -1207,8 +1234,7 @@ const User = Entity.create({
                 dataDeps: {
                     self: {
                         type: 'property',
-                        property: '_self',  // Special keyword for current record
-                        attributeQuery: ['score']
+                        attributeQuery: ['score']  // Access current record's score property
                     },
                     levelConfig: {
                         type: 'global',
@@ -1244,14 +1270,17 @@ const Order = Entity.create({
             computation: Custom.create({
                 name: 'OrderTotalCalculator',
                 dataDeps: {
-                    items: {
-                        type: 'property',  // Access via relation property
-                        property: 'items',  // Property defined by OrderItemRelation
-                        attributeQuery: ['price', 'quantity', 'discount']
+                    orderData: {
+                        type: 'property',
+                        attributeQuery: [
+                            ['items', {  // Access related items through nested query
+                                attributeQuery: ['price', 'quantity', 'discount']
+                            }]
+                        ]
                     }
                 },
                 compute: async function(dataDeps, record) {
-                    const items = dataDeps.items || [];
+                    const items = dataDeps.orderData?.items || [];
                     return items.reduce((total, item) => {
                         const price = item.price || 0;
                         const quantity = item.quantity || 1;
@@ -1275,23 +1304,28 @@ const Order = Entity.create({
 
 4. **Flexible Data Dependencies**: Configure complex data dependencies including:
    - `type: 'records'`: Fetch all entity/relation records globally (for Dictionary/global computations)
-   - `type: 'property'`: Access related entities through relation properties (for Property computations)
+   - `type: 'property'`: Access current record's data including relations via nested attributeQuery (for Property computations)
    - `type: 'global'`: Access global dictionary values
 
 **🔴 CRITICAL: dataDeps type Configuration**
 
 **For Property-level Custom computation:**
-- Use `type: 'property'` to access related entities through relations
-- Specify `property: 'propertyName'` where propertyName is defined by the relation
+- Use `type: 'property'` to access the current record's data
+- Use nested attributeQuery to access related entities through relations
 - Example: If you have a UserPostRelation with `sourceProperty: 'posts'`, use:
   ```typescript
   dataDeps: {
-    posts: {
-      type: 'property',  // NOT 'records'!
-      property: 'posts',  // Relation property name
-      attributeQuery: ['title', 'status']
+    currentRecord: {
+      type: 'property',
+      attributeQuery: [
+        'id', 'name',  // Current record's own properties
+        ['posts', {  // Access related entities through nested query
+          attributeQuery: ['title', 'status']
+        }]
+      ]
     }
   }
+  // Then access in compute: dataDeps.currentRecord.posts
   ```
 
 **For Dictionary-level Custom computation:**
@@ -1317,7 +1351,7 @@ const Order = Entity.create({
 1. **Always provide `getDefaultValue`**: This ensures the computation has a valid initial value
 2. **Use appropriate context type**: Global computations for system-wide values, property computations for entity-specific values
 3. **Use correct dataDeps type**: 
-   - `type: 'property'` for accessing related entities in Property computations
+   - `type: 'property'` for accessing current record data in Property computations (use nested attributeQuery for relations)
    - `type: 'records'` for global queries in Dictionary computations
    - Never use `type: 'records'` in Property computations (won't access the specific record's relations)
 4. **Handle missing data gracefully**: Check for null/undefined in dataDeps
@@ -1462,7 +1496,7 @@ const processedState = StateNode.create({
 const activeState = StateNode.create({
     name: 'active',
     computeValue: () => ({
-        activatedAt: Date.now(),
+        activatedAt: Math.floor(Date.now()/1000),  // In seconds
         status: 'active',
         metadata: { source: 'manual' }
     })
@@ -1534,7 +1568,7 @@ const approvedState = StateNode.create({
         const approver = event?.user?.name || 'system';
         return {
             status: 'approved',
-            approvedAt: Date.now(),
+            approvedAt: Math.floor(Date.now()/1000),  // In seconds
             approvedBy: approver
         };
     }
@@ -1549,7 +1583,7 @@ const updatedState = StateNode.create({
             return {
                 ...lastValue,
                 ...event.payload.updates,
-                lastModifiedAt: Date.now(),
+                lastModifiedAt: Math.floor(Date.now()/1000),  // In seconds
                 lastModifiedBy: event.user?.id
             };
         }
@@ -1563,11 +1597,11 @@ const reviewedState = StateNode.create({
     computeValue: (lastValue, event) => {
         // Different behavior based on which interaction triggered the transition
         if (event?.interactionName === 'approve') {
-            return { status: 'approved', reviewedAt: Date.now() };
+            return { status: 'approved', reviewedAt: Math.floor(Date.now()/1000) };  // In seconds
         } else if (event?.interactionName === 'reject') {
             return { 
                 status: 'rejected', 
-                reviewedAt: Date.now(),
+                reviewedAt: Math.floor(Date.now()/1000),  // In seconds
                 reason: event.payload?.reason || 'No reason provided'
             };
         }
@@ -1716,7 +1750,7 @@ const updateRelationTransfer = StateTransfer.create({
     next: updatedState,
     computeTarget: async function(this: Controller, event) {
         // Find existing relation
-        const relation = await this.system.storage.findOneRelationByName('UserProjectRelation',
+        const relation = await this.system.storage.findOneRelationByName(UserProjectRelation.name,
             this.globals.MatchExp.atom({
                 key: 'source.id',
                 value: ['=', event.user.id]
@@ -2441,6 +2475,35 @@ When working with relations (not regular entities), remember that:
 - In `attributeQuery`: Use nested query syntax (`['source', { attributeQuery: [...] }]`)
 - This applies to ALL storage methods when querying relations: `find()`, `findOne()`, `findRelationByName()`, `findOneRelationByName()`
 
+🔴 **CRITICAL: Always use Relation instance name when querying!**
+When using `storage.find()` or `storage.findOne()` to query relations:
+- **ALWAYS** use the name from the Relation instance: `storage.find(UserPostRelation.name, ...)`
+- **NEVER** hardcode the relation name: `storage.find('UserPostRelation', ...)` ❌
+- This is crucial because:
+  1. Relation names can be manually specified in `Relation.create({ name: 'CustomName', ... })`
+  2. If no name is specified, the framework auto-generates one (e.g., `UserPost` for User→Post relation)
+  3. Using the instance name ensures you always get the correct name regardless of how it was defined
+
+**Example:**
+```typescript
+// Define relation - name might be auto-generated or manually specified
+const UserPostRelation = Relation.create({
+    source: User,
+    sourceProperty: 'posts',
+    target: Post,
+    targetProperty: 'author',
+    type: '1:n'
+    // Note: no 'name' property, so it will be auto-generated as 'UserPost'
+})
+
+// ✅ CORRECT: Always use the relation instance's name property
+const relations = await storage.find(UserPostRelation.name, ...)  // Will use 'UserPost'
+
+// ❌ WRONG: Never hardcode the relation name
+const relations = await storage.find('UserPost', ...)  // Might break if name changes
+const relations = await storage.find('UserPostRelation', ...)  // Wrong assumption
+```
+
 **find(entityName: string, matchExpression?: MatchExpressionData, modifier?: ModifierData, attributeQuery?: AttributeQueryData)**
 Find multiple records matching the criteria.
 
@@ -2465,16 +2528,16 @@ When querying relations that have `source` and `target` fields, these fields sho
 
 1. **In matchExpression - Use dot notation for nested properties:**
 ```typescript
-// ✅ CORRECT: Use dot notation to access source/target entity properties
-const relations = await storage.find('UserPostRelation',
+// ✅ CORRECT: Use relation instance name and dot notation for nested properties
+const relations = await storage.find(UserPostRelation.name,
   MatchExp.atom({ key: 'source.id', value: ['=', userId] })
     .and({ key: 'target.status', value: ['=', 'published'] }),
   undefined,
   ['id', 'createdAt']
 )
 
-// ❌ WRONG: Cannot compare source/target directly
-const relations = await storage.find('UserPostRelation',
+// ❌ WRONG: Don't hardcode relation names or compare source/target directly
+const relations = await storage.find('UserPostRelation',  // Don't hardcode!
   MatchExp.atom({ key: 'source', value: ['=', userId] }),  // This won't work!
   undefined,
   ['id']
@@ -2483,8 +2546,8 @@ const relations = await storage.find('UserPostRelation',
 
 2. **In attributeQuery - Use nested query syntax for source/target:**
 ```typescript
-// ✅ CORRECT: Use nested attributeQuery to fetch source/target entity fields
-const relations = await storage.find('UserPostRelation',
+// ✅ CORRECT: Use relation instance name and nested attributeQuery
+const relations = await storage.find(UserPostRelation.name,
   undefined,
   undefined,
   [
@@ -2495,8 +2558,8 @@ const relations = await storage.find('UserPostRelation',
   ]
 )
 
-// ❌ WRONG: This won't fetch the actual entity data
-const relations = await storage.find('UserPostRelation',
+// ❌ WRONG: Hardcoded name and incorrect attributeQuery
+const relations = await storage.find('UserPostRelation',  // Don't hardcode!
   undefined,
   undefined,
   ['id', 'source', 'target']  // This only returns entity references, not data!
@@ -2596,8 +2659,8 @@ const student = await storage.findOne('Student',
 
 **🔴 When using findOne with Relations:**
 ```typescript
-// ✅ CORRECT: Query relation with source/target using dot notation
-const relation = await storage.findOne('UserPostRelation',
+// ✅ CORRECT: Use relation instance name and dot notation
+const relation = await storage.findOne(UserPostRelation.name,
   MatchExp.atom({ key: 'source.id', value: ['=', userId] })
     .and({ key: 'target.id', value: ['=', postId] }),
   undefined,
@@ -2608,8 +2671,8 @@ const relation = await storage.findOne('UserPostRelation',
   ]
 )
 
-// ❌ WRONG: Don't query source/target directly
-const relation = await storage.findOne('UserPostRelation',
+// ❌ WRONG: Don't hardcode names or query source/target directly
+const relation = await storage.findOne('UserPostRelation',  // Don't hardcode!
   MatchExp.atom({ key: 'source', value: ['=', userId] }),  // Won't work!
   undefined,
   ['id', 'source', 'target']  // Won't fetch entity data!
@@ -2645,7 +2708,7 @@ Update existing records.
 ```typescript
 await storage.update('User', 
   MatchExp.atom({ key: 'id', value: ['=', userId] }), 
-  { status: 'inactive', lastModified: Date.now() }
+  { status: 'inactive', lastModified: Math.floor(Date.now()/1000) }  // In seconds
 )
 ```
 
@@ -2675,8 +2738,8 @@ When using relation-specific operations, the same rules apply for source/target 
 Find relation records by relation name.
 
 ```typescript
-// ✅ CORRECT: Use dot notation in matchExpression and nested query in attributeQuery
-const userPosts = await storage.findRelationByName('UserPostRelation',
+// ✅ CORRECT: Use relation instance name, dot notation in matchExpression and nested query in attributeQuery
+const userPosts = await storage.findRelationByName(UserPostRelation.name,
   MatchExp.atom({ key: 'source.id', value: ['=', userId] })
     .and({ key: 'target.status', value: ['=', 'published'] }),
   { limit: 10 },
@@ -2688,8 +2751,8 @@ const userPosts = await storage.findRelationByName('UserPostRelation',
   ]
 )
 
-// ❌ WRONG: Don't use source/target directly in matchExpression
-const userPosts = await storage.findRelationByName('UserPostRelation',
+// ❌ WRONG: Don't hardcode relation names or use source/target directly in matchExpression
+const userPosts = await storage.findRelationByName('UserPostRelation',  // Don't hardcode!
   MatchExp.atom({ key: 'source', value: ['=', userId] }),  // Won't work!
   undefined,
   ['id', 'source', 'target']  // Won't fetch entity data!
@@ -2700,8 +2763,8 @@ const userPosts = await storage.findRelationByName('UserPostRelation',
 Find a single relation record by relation name.
 
 ```typescript
-// ✅ CORRECT: Properly query and fetch relation with entity data
-const relation = await storage.findOneRelationByName('UserPostRelation',
+// ✅ CORRECT: Use relation instance name to query and fetch relation with entity data
+const relation = await storage.findOneRelationByName(UserPostRelation.name,
   MatchExp.atom({ key: 'source.id', value: ['=', userId] })
     .and({ key: 'target.id', value: ['=', postId] }),
   undefined,
@@ -2713,8 +2776,8 @@ const relation = await storage.findOneRelationByName('UserPostRelation',
   ]
 )
 
-// Simple case - just fetch by relation ID
-const relation = await storage.findOneRelationByName('UserPostRelation',
+// Simple case - just fetch by relation ID (still use instance name)
+const relation = await storage.findOneRelationByName(UserPostRelation.name,
   MatchExp.atom({ key: 'id', value: ['=', relationId] }),
   undefined,
   ['*']  // This is OK for fetching all relation properties, but won't expand source/target
@@ -2726,10 +2789,10 @@ Create a relation between two entities by their IDs.
 
 ```typescript
 // Create relation between user and post
-await storage.addRelationByNameById('UserPostRelation', 
+await storage.addRelationByNameById(UserPostRelation.name, 
   userId, 
   postId,
-  { createdAt: Date.now() }  // Optional relation properties
+  { createdAt: Math.floor(Date.now()/1000) }  // Optional relation properties - in seconds
 )
 ```
 
@@ -2738,20 +2801,20 @@ Update relation properties (cannot update source/target).
 
 ```typescript
 // Update by relation ID
-await storage.updateRelationByName('UserPostRelation',
+await storage.updateRelationByName(UserPostRelation.name,
   MatchExp.atom({ key: 'id', value: ['=', relationId] }),
   { priority: 'high' }  // Only update relation properties
 )
 
-// ✅ CORRECT: Find and update relations using source/target properties
-await storage.updateRelationByName('UserPostRelation',
+// ✅ CORRECT: Use relation instance name and source/target properties
+await storage.updateRelationByName(UserPostRelation.name,
   MatchExp.atom({ key: 'source.id', value: ['=', userId] })
     .and({ key: 'target.status', value: ['=', 'draft'] }),
   { reviewed: true }
 )
 
-// ❌ WRONG: Don't use source/target directly
-await storage.updateRelationByName('UserPostRelation',
+// ❌ WRONG: Don't hardcode relation names or use source/target directly
+await storage.updateRelationByName('UserPostRelation',  // Don't hardcode!
   MatchExp.atom({ key: 'source', value: ['=', userId] }),  // Won't work!
   { reviewed: true }
 )
@@ -2762,18 +2825,18 @@ Remove relations.
 
 ```typescript
 // Remove by relation ID
-await storage.removeRelationByName('UserPostRelation',
+await storage.removeRelationByName(UserPostRelation.name,
   MatchExp.atom({ key: 'id', value: ['=', relationId] })
 )
 
-// ✅ CORRECT: Remove relations using source/target properties
-await storage.removeRelationByName('UserPostRelation',
+// ✅ CORRECT: Use relation instance name with source/target properties
+await storage.removeRelationByName(UserPostRelation.name,
   MatchExp.atom({ key: 'source.id', value: ['=', userId] })
     .and({ key: 'target.id', value: ['=', postId] })
 )
 
-// ❌ WRONG: Don't use source/target directly
-await storage.removeRelationByName('UserPostRelation',
+// ❌ WRONG: Don't hardcode relation names or use source/target directly
+await storage.removeRelationByName('UserPostRelation',  // Don't hardcode!
   MatchExp.atom({ key: 'target', value: ['=', postId] })  // Won't work!
 )
 ```

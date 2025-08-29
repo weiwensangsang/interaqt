@@ -27,20 +27,22 @@ Identify how the entity comes into existence:
 - **created-with-parent**: Created together with another entity (e.g., audit log with transaction)
 
 **For interaction-created entities**:
-- List all interactions that can create this entity in `interactionDependencies`
+- List all interactions that can create this entity in `lifecycle.creation.creationInteractions`
 - Document any prerequisites in `dataDependencies` (entities that must exist first)
 - Describe creation logic in `computationMethod`
 
 **For derived entities**:
 - List source data in `dataDependencies`
-- Leave `interactionDependencies` empty or minimal
+- Leave `lifecycle.creation.creationInteractions` empty or minimal
 - Describe derivation rules in `computationMethod`
 - These entities appear/disappear automatically with their source data
 
 **For created-with-parent entities**:
 - List parent entity in `dataDependencies`
-- Include parent's creation interactions in `interactionDependencies`
-- Describe the relationship in `computationMethod`
+- Include parent's creation interactions in `lifecycle.creation.creationInteractions`
+- **CRITICAL**: The creation logic is NOT in this entity's own computation, but in the parent entity's computation
+- Must clearly state in `computationMethod`: "Created by [ParentEntity]'s computation when [condition]"
+- Example: AuditLog's `computationMethod` should be "Created by Transaction's computation when Transaction is created or updated"
 
 **Deletion Patterns**:
 Only relevant for interaction-created entities:
@@ -131,6 +133,30 @@ Analyze the source of data for each property by identifying dependencies:
 
 **Note**: Some properties may have both types of dependencies. For example, a property might be computed from other data but can also be overridden by specific interactions. Document both arrays and explain the combined behavior in the computationMethod field.
 
+#### 2.3 Property Control Type
+
+Determine how each property's value is controlled:
+
+**Control Types**:
+- **creation-only**: Set during entity/relation creation and never modified separately
+  - Examples: creation timestamps, immutable IDs, business constants
+  - These don't need separate computation control
+  - Logic is embedded in the entity/relation creation process
+  
+- **derived-with-parent**: Property belongs to a derived entity/relation and is computed as part of the parent's overall derivation
+  - Maintains strong consistency with parent computation
+  - Cannot be modified independently of parent's computation rules
+  - Examples: all properties of a filtered/derived entity
+  
+- **independent**: Requires separate computation control
+  - Can be modified after creation
+  - Has its own update logic separate from entity/relation creation
+  - Examples: status fields, counters, mutable business data
+
+**Key Questions**:
+- Is this property only set at creation and never changed?
+- Is this property part of a derived entity/relation's computation?
+- Does this property need independent update control?
 
 ### Step 3: Relation Analysis
 
@@ -153,7 +179,7 @@ Relations follow similar patterns to entities:
 
 **Dependencies**:
 - **dataDependencies**: Always includes source and target entities, plus any other required data
-- **interactionDependencies**: Interactions that create/delete this relation
+- **lifecycle.creation.creationInteractions**: Interactions that create this relation
 - **computationMethod**: Describes how and when the relation is established
 
 **Deletion Patterns**:
@@ -340,7 +366,7 @@ Use this JSON template to document your analysis results.
 
 **Key Principles of the Simplified Structure**:
 1. **All dependencies are string arrays**: List names only, describe usage in `computationMethod`
-2. **Lifecycle is simplified**: Focus on creation pattern and deletion capability
+2. **Lifecycle is structured**: Creation is an object with `type` (interaction-created, derived, or created-with-parent/entity), `parent` (entity name when type is created-with-*), and `creationInteractions` (list of interactions that create the entity/relation)
 3. **Updates are property-level**: Never analyze updates at entity/relation level
 4. **Creation patterns are clear**: interaction-created, derived, or created-with-parent/entity
 5. **Deletion is straightforward**: Can delete? Type? Which interactions?
@@ -351,10 +377,13 @@ Use this JSON template to document your analysis results.
     "[entityName]": {
       "purpose": "[Business purpose and meaning]",
       "dataDependencies": ["dependency1", "dependency2"],
-      "interactionDependencies": ["interaction1", "interaction2"],
       "computationMethod": "[How this entity is created: 'interaction-created' | 'derived from X' | 'created with parent entity Y']",
       "lifecycle": {
-        "creation": "[interaction-created | derived | created-with-parent]",
+        "creation": {
+          "type": "[interaction-created | derived | created-with-parent]",
+          "parent": "[ParentEntityName if type is created-with-parent, null otherwise]",
+          "creationInteractions": ["interaction1", "interaction2"]
+        },
         "deletion": {
           "canBeDeleted": true,
           "deletionType": "[soft-delete | hard-delete]",
@@ -365,6 +394,7 @@ Use this JSON template to document your analysis results.
         "id": {
           "type": "string",
           "purpose": "System-generated unique identifier",
+          "controlType": "creation-only",
           "dataDependencies": null,
           "interactionDependencies": null,
           "initialValue": "auto-generated"
@@ -372,6 +402,7 @@ Use this JSON template to document your analysis results.
         "[propertyName]": {
           "type": "[string/number/boolean/object]",
           "purpose": "[What this property represents]",
+          "controlType": "[creation-only | derived-with-parent | independent]",
           "dataDependencies": ["dependency1", "dependency2"],
           "interactionDependencies": ["interaction1", "interaction2"],
           "computationMethod": "[how this property is computed from data dependencies OR how interactions modify it]",
@@ -383,10 +414,13 @@ Use this JSON template to document your analysis results.
     "user": {
       "purpose": "System users with different roles",
       "dataDependencies": [],
-      "interactionDependencies": ["CreateUser", "BulkImportUsers", "RegisterUser", "DeleteUser", "BanUser"],
       "computationMethod": "Independently created by CreateUser, BulkImportUsers, or RegisterUser interactions",
       "lifecycle": {
-        "creation": "interaction-created",
+        "creation": {
+          "type": "interaction-created",
+          "parent": null,
+          "creationInteractions": ["CreateUser", "BulkImportUsers", "RegisterUser"]
+        },
         "deletion": {
           "canBeDeleted": true,
           "deletionType": "soft-delete",
@@ -397,6 +431,7 @@ Use this JSON template to document your analysis results.
         "id": {
           "type": "string",
           "purpose": "System-generated unique identifier",
+          "controlType": "creation-only",
           "dataDependencies": null,
           "interactionDependencies": null,
           "initialValue": "auto-generated"
@@ -404,6 +439,7 @@ Use this JSON template to document your analysis results.
         "name": {
           "type": "string",
           "purpose": "User's display name",
+          "controlType": "independent",
           "dataDependencies": [],
           "interactionDependencies": ["CreateUser", "UpdateUserProfile"],
           "computationMethod": "Direct assignment from interactions",
@@ -412,6 +448,7 @@ Use this JSON template to document your analysis results.
         "email": {
           "type": "string",
           "purpose": "Unique identifier and contact",
+          "controlType": "creation-only",
           "dataDependencies": [],
           "interactionDependencies": ["CreateUser"],
           "computationMethod": "Set once at creation, immutable thereafter",
@@ -420,6 +457,7 @@ Use this JSON template to document your analysis results.
         "postCount": {
           "type": "number",
           "purpose": "Total posts created by user",
+          "controlType": "independent",
           "dataDependencies": ["UserPostRelation"],
           "interactionDependencies": [],
           "computationMethod": "Count of UserPostRelation where target = this user",
@@ -428,6 +466,7 @@ Use this JSON template to document your analysis results.
         "status": {
           "type": "string",
           "purpose": "User account status (example of mixed dependencies)",
+          "controlType": "independent",
           "dataDependencies": ["lastLoginDate"],
           "interactionDependencies": ["CreateUser", "ActivateUser", "DeactivateUser", "BanUser"],
           "computationMethod": "Set to 'inactive' if lastLoginDate > 90 days ago, but can be overridden by direct interaction updates",
@@ -446,10 +485,13 @@ Use this JSON template to document your analysis results.
       "sourceProperty": "[property name on source entity]",
       "targetProperty": "[property name on target entity]",
       "dataDependencies": ["sourceEntity", "targetEntity"],
-      "interactionDependencies": ["interaction1", "interaction2"],
       "computationMethod": "[How this relation is created: 'interaction-created' | 'derived from conditions' | 'created with entity X']",
       "lifecycle": {
-        "creation": "[interaction-created | derived | created-with-entity]",
+        "creation": {
+          "type": "[interaction-created | derived | created-with-entity]",
+          "parent": "[ParentEntityName if type is created-with-entity, null otherwise]",
+          "creationInteractions": ["interaction1", "interaction2"]
+        },
         "deletion": {
           "canBeDeleted": true,
           "deletionType": "[soft-delete | hard-delete | auto-delete]",
@@ -460,6 +502,7 @@ Use this JSON template to document your analysis results.
         "[propertyName]": {
           "type": "[string/number/boolean]",
           "purpose": "[meaning in the relationship context]",
+          "controlType": "[creation-only | derived-with-parent | independent]",
           "dataDependencies": ["dependency1", "dependency2"],
           "interactionDependencies": ["interaction1", "interaction2"],
           "computationMethod": "[how this property is computed from data dependencies OR how interactions modify it]",
@@ -476,10 +519,13 @@ Use this JSON template to document your analysis results.
       "sourceProperty": "author",
       "targetProperty": "posts",
       "dataDependencies": ["Post", "User"],
-      "interactionDependencies": ["CreatePost", "ImportPost", "DeletePost", "PurgeUserContent"],
       "computationMethod": "Created together with Post entity by CreatePost or ImportPost interactions",
       "lifecycle": {
-        "creation": "created-with-entity",
+        "creation": {
+          "type": "created-with-entity",
+          "parent": "Post",
+          "creationInteractions": ["CreatePost", "ImportPost"]
+        },
         "deletion": {
           "canBeDeleted": true,
           "deletionType": "auto-delete",
@@ -490,6 +536,7 @@ Use this JSON template to document your analysis results.
         "createdAt": {
           "type": "number",
           "purpose": "Timestamp of post creation",
+          "controlType": "creation-only",
           "dataDependencies": [],
           "interactionDependencies": ["CreatePost"],
           "computationMethod": "Set to current timestamp when CreatePost creates the relation",
@@ -506,10 +553,13 @@ Use this JSON template to document your analysis results.
       "sourceProperty": "dormitory",
       "targetProperty": "residents",
       "dataDependencies": ["User", "Dormitory"],
-      "interactionDependencies": ["AssignDormitory", "BulkAssignStudents", "UnassignDormitory", "GraduateStudent", "TransferDormitory"],
       "computationMethod": "Independently created by AssignDormitory or BulkAssignStudents when User.role='student' and Dormitory has capacity",
       "lifecycle": {
-        "creation": "interaction-created",
+        "creation": {
+          "type": "interaction-created",
+          "parent": null,
+          "creationInteractions": ["AssignDormitory", "BulkAssignStudents"]
+        },
         "deletion": {
           "canBeDeleted": true,
           "deletionType": "hard-delete",
@@ -520,6 +570,7 @@ Use this JSON template to document your analysis results.
         "assignedAt": {
           "type": "number",
           "purpose": "Timestamp of assignment",
+          "controlType": "creation-only",
           "dataDependencies": [],
           "interactionDependencies": ["AssignDormitory"],
           "computationMethod": "Set to current timestamp when AssignDormitory creates the relation",
@@ -528,6 +579,7 @@ Use this JSON template to document your analysis results.
         "status": {
           "type": "string",
           "purpose": "Assignment status",
+          "controlType": "independent",
           "dataDependencies": ["User.enrollmentStatus"],
           "interactionDependencies": ["CheckInStudent", "CheckOutStudent"],
           "computationMethod": "Set to 'inactive' if User.enrollmentStatus is not 'enrolled', can be directly set to 'checked-in' or 'checked-out' by interactions",
@@ -539,10 +591,13 @@ Use this JSON template to document your analysis results.
     "activeUser": {
       "purpose": "Users who have logged in within last 30 days (example of derived entity)",
       "dataDependencies": ["User", "User.lastLoginDate"],
-      "interactionDependencies": [],
       "computationMethod": "Derived from User where lastLoginDate > (now - 30 days)",
       "lifecycle": {
-        "creation": "derived",
+        "creation": {
+          "type": "derived",
+          "parent": null,
+          "creationInteractions": []
+        },
         "deletion": {
           "canBeDeleted": false,
           "deletionType": "auto-delete",
@@ -550,17 +605,46 @@ Use this JSON template to document your analysis results.
         }
       },
       "properties": {
-        "// inherits all properties from User": {}
+        "id": {
+          "type": "string",
+          "purpose": "User's ID (inherited)",
+          "controlType": "derived-with-parent",
+          "dataDependencies": ["User.id"],
+          "interactionDependencies": [],
+          "computationMethod": "Inherited from User entity during derivation",
+          "initialValue": "from User"
+        },
+        "name": {
+          "type": "string",
+          "purpose": "User's name (inherited)",
+          "controlType": "derived-with-parent",
+          "dataDependencies": ["User.name"],
+          "interactionDependencies": [],
+          "computationMethod": "Inherited from User entity during derivation",
+          "initialValue": "from User"
+        },
+        "lastLoginDate": {
+          "type": "number",
+          "purpose": "Last login timestamp (inherited)",
+          "controlType": "derived-with-parent",
+          "dataDependencies": ["User.lastLoginDate"],
+          "interactionDependencies": [],
+          "computationMethod": "Inherited from User entity during derivation",
+          "initialValue": "from User"
+        }
       }
     },
     
     "auditLog": {
       "purpose": "Audit trail for important operations (example of created-with-parent)",
       "dataDependencies": ["Transaction"],
-      "interactionDependencies": ["CreateTransaction", "UpdateTransaction"],
-      "computationMethod": "Created automatically whenever Transaction is created or updated",
+      "computationMethod": "Created by Transaction's computation when Transaction is created or updated (NOT by AuditLog's own computation)",
       "lifecycle": {
-        "creation": "created-with-parent",
+        "creation": {
+          "type": "created-with-parent",
+          "parent": "Transaction",
+          "creationInteractions": ["CreateTransaction", "UpdateTransaction"]
+        },
         "deletion": {
           "canBeDeleted": false,
           "deletionType": "none",
@@ -571,6 +655,7 @@ Use this JSON template to document your analysis results.
         "action": {
           "type": "string",
           "purpose": "The action performed",
+          "controlType": "creation-only",
           "dataDependencies": [],
           "interactionDependencies": ["CreateTransaction", "UpdateTransaction"],
           "computationMethod": "Set based on the triggering interaction type",
@@ -636,8 +721,8 @@ Use this JSON template to document your analysis results.
 
 ## Validation Checklist
 
-- [ ] Every entity has documented data dependencies and interaction dependencies
-- [ ] Every relation has documented data dependencies and interaction dependencies
+- [ ] Every entity has documented data dependencies and creation interactions in lifecycle.creation.creationInteractions
+- [ ] Every relation has documented data dependencies and creation interactions in lifecycle.creation.creationInteractions
 - [ ] Every entity property has clear dependency documentation
 - [ ] All computed properties list complete data dependencies with computation methods
 - [ ] Event-driven properties specify all interaction dependencies with change patterns

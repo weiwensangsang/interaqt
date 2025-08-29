@@ -1,8 +1,8 @@
-import { StateMachine, StateMachineInstance, StateNodeInstance } from "@shared";
+import { Relation, StateMachine, StateMachineInstance, StateNodeInstance } from "@shared";
 import { Controller } from "../Controller.js";
 import { EntityIdRef, RecordMutationEvent } from '../System.js';
 import { INTERACTION_RECORD } from "../activity/ActivityManager.js";
-import { DataContext, EntityDataContext } from "./Computation.js";
+import { DataContext, EntityDataContext, PropertyDataContext } from "./Computation.js";
 import { ComputationResult, ComputationResultPatch, EventBasedComputation, EventDep, GlobalBoundState, RecordBoundState } from "./Computation.js";
 import { EtityMutationEvent } from "../Scheduler.js";
 import { TransitionFinder } from "./TransitionFinder.js";
@@ -72,9 +72,11 @@ export class PropertyStateMachineHandle implements EventBasedComputation {
     useLastValue: boolean = true
     eventDeps: {[key: string]: EventDep} = {}
     defaultState: StateNodeInstance
-    constructor(public controller: Controller, public args: StateMachineInstance, public dataContext: DataContext) {
+    dataContext: PropertyDataContext
+    constructor(public controller: Controller, public args: StateMachineInstance, dataContext: DataContext) {
         this.transitionFinder = new TransitionFinder(this.args)
         this.defaultState = this.args.defaultState
+        this.dataContext = dataContext as PropertyDataContext
     }
     createState() {
         return {
@@ -82,8 +84,20 @@ export class PropertyStateMachineHandle implements EventBasedComputation {
         }
     }
     // 这里的 defaultValue 不能是 async 的模式。因为是直接创建时填入的。
-    getDefaultValue(event:any) {
-        return this.defaultState.computeValue ? this.defaultState.computeValue.call(this.controller, undefined, event) : this.defaultState.name
+    getDefaultValue(initialRecord:any) {
+        const lastValue = initialRecord[this.dataContext.id.name]
+        assert(
+            !(lastValue !== undefined && !this.defaultState.computeValue), 
+            `${this.dataContext.host.name}.${this.dataContext.id.name} have been set when ${this.dataContext.host.name} created, 
+if you want to save the use the initial value, you need to define computeValue in defaultState to save it.
+Or if you want to use state name as value, you should not set ${this.dataContext.host.name}.${this.dataContext.id.name} when ${this.dataContext.host.name} created.
+`
+        )
+        if (lastValue !== undefined || this.defaultState.computeValue) {
+            return this.defaultState.computeValue!.call(this.controller, lastValue, undefined)
+        } else {
+            return this.defaultState.name
+        }
     }
     mutationEventToTrigger(mutationEvent: RecordMutationEvent) {
         // FIXME 支持 data mutation
@@ -99,11 +113,11 @@ export class PropertyStateMachineHandle implements EventBasedComputation {
         const trigger = this.mutationEventToTrigger(mutationEvent)
         if (trigger) {
             const transfers = this.transitionFinder.findTransfers(trigger)
-            
-            return Promise.all(transfers.map(transfer => {
+            // CAUTION 不能返回有 null 的节点，所以加上 filter。
+            return (await Promise.all(transfers.map(transfer => {
                 const event = mutationEvent.recordName === INTERACTION_RECORD ? mutationEvent.record : mutationEvent
                 return transfer.computeTarget!.call(this.controller, event)
-            }))
+            }))).flat().filter(Boolean)
         }
     }
     
@@ -133,10 +147,12 @@ export class RecordStateMachineHandle implements EventBasedComputation {
     eventDeps: {[key: string]: EventDep} = {}
     defaultState: StateNodeInstance
     dataContext: EntityDataContext
+    isRelation: boolean
     constructor(public controller: Controller, public args: StateMachineInstance, dataContext: DataContext) {
         this.transitionFinder = new TransitionFinder(this.args)
         this.defaultState = this.args.defaultState
         this.dataContext = dataContext as EntityDataContext
+        this.isRelation = this.dataContext.id instanceof Relation
     }
     createState() {
         return {
@@ -162,10 +178,10 @@ export class RecordStateMachineHandle implements EventBasedComputation {
         if (trigger) {
             const transfers = this.transitionFinder.findTransfers(trigger)
             
-            return Promise.all(transfers.map(transfer => {
+            return (await Promise.all(transfers.map(transfer => {
                 const event = mutationEvent.recordName === INTERACTION_RECORD ? mutationEvent.record : mutationEvent
                 return transfer.computeTarget!.call(this.controller, event)
-            }))
+            }))).flat().filter(Boolean)
         }
     }
     
@@ -197,12 +213,20 @@ export class RecordStateMachineHandle implements EventBasedComputation {
                 }
             }
         } else {
+            // 这个时候 dirtyRecord 是 computeTarget 继续算出来的要创建的新关系
             if (nextValue) {
+
+                assert(!(this.isRelation && (dirtyRecord.source?.id===undefined || dirtyRecord.target?.id===undefined)), 
+                    `
+${this.dataContext.id.name} StateMachine transfer from ${currentStateName} to ${nextState.name} will create new relation, 
+it requires both source and target id, but your computeTarget function returned ${JSON.stringify(dirtyRecord)}`
+                )
+                
                 return {
                     type: 'insert',
                     data: {
                         ...dirtyRecord,
-                        ...nextState,
+                        ...nextValue,
                         [this.state.currentState.key]: nextState.name
                     }
                 }

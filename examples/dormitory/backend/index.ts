@@ -1,262 +1,144 @@
-import { 
-  Entity, 
-  Property, 
-  Relation, 
-  Interaction, 
-  Action, 
-  Payload, 
+import {
+  Entity,
+  Property,
+  Relation,
+  Interaction,
+  Action,
+  Payload,
   PayloadItem,
-  Condition,
-  Conditions,
+  Controller,
+  Count,
+  Summation,
   StateMachine,
   StateNode,
   StateTransfer,
-  Count,
-  Summation,
   Transform,
-  Activity,
-  InteractionEventEntity,
-  Controller,
+  Custom,
+  Condition,
+  Conditions,
+  BoolExp,
   MatchExp,
-  BoolExp
+  Dictionary,
+  InteractionEventEntity
 } from 'interaqt'
 
-// ================== ENTITIES ==================
+// ========================= ENTITIES =========================
 
-// User entity - system users with different roles
 const User = Entity.create({
   name: 'User',
   properties: [
-    Property.create({
-      name: 'name',
-      type: 'string'
-    }),
-    Property.create({
-      name: 'email',
-      type: 'string'
-    }),
-    Property.create({
-      name: 'phone',
-      type: 'string',
-      defaultValue: () => ''
-    }),
-    Property.create({
-      name: 'role',
-      type: 'string'
-      // Managed by StateMachine computation
-    }),
-    Property.create({
-      name: 'status',
-      type: 'string'
-      // Managed by StateMachine computation
-    }),
-    Property.create({
-      name: 'points',
-      type: 'number'
-      // Managed by StateMachine computation - defaults to 100
-    }),
-    Property.create({
-      name: 'joinedAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
-    }),
-    Property.create({
-      name: 'totalDeductions',
-      type: 'number'
-      // will have Summation computation later
-    }),
-    Property.create({
-      name: 'deductionCount',
-      type: 'number'
-      // will have Count computation later
-    })
+    Property.create({ name: 'id', type: 'string' }),
+    Property.create({ name: 'username', type: 'string' }),
+    Property.create({ name: 'password', type: 'string' }),
+    Property.create({ name: 'email', type: 'string' }),
+    Property.create({ name: 'name', type: 'string' }),
+    Property.create({ name: 'points', type: 'number' }),
+    Property.create({ name: 'role', type: 'string' }),
+    Property.create({ name: 'createdAt', type: 'number' }),
+    Property.create({ name: 'isDeleted', type: 'boolean' })
   ]
 })
 
-// Dormitory entity - dormitory rooms that can house multiple students
 const Dormitory = Entity.create({
   name: 'Dormitory',
   properties: [
-    Property.create({
-      name: 'name',
-      type: 'string'
+    Property.create({ name: 'id', type: 'string' }),
+    Property.create({ name: 'name', type: 'string' }),
+    Property.create({ name: 'capacity', type: 'number' }),
+    Property.create({ name: 'floor', type: 'number' }),
+    Property.create({ name: 'building', type: 'string' }),
+    Property.create({ 
+      name: 'createdAt', 
+      type: 'number',
+      defaultValue: () => Math.floor(Date.now() / 1000)
     }),
-    Property.create({
-      name: 'capacity',
-      type: 'number'
+    Property.create({ 
+      name: 'isDeleted', 
+      type: 'boolean',
+      defaultValue: () => false
     }),
-    Property.create({
-      name: 'floor',
+    Property.create({ 
+      name: 'occupiedBeds', 
       type: 'number',
       defaultValue: () => 0
-    }),
-    Property.create({
-      name: 'building',
-      type: 'string',
-      defaultValue: () => ''
-    }),
-    Property.create({
-      name: 'status',
-      type: 'string',
-      computed: function(record) {
-        // computed function receives the record as parameter
-        const capacity = record.capacity || 0
-        const occupancy = record.occupancy || 0
-        
-        // Check if dormitory is full
-        if (capacity > 0 && occupancy >= capacity) {
-          return 'full'
-        }
-        return 'available'
-      }
-    }),
-    Property.create({
-      name: 'createdAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
-    }),
-    Property.create({
-      name: 'occupancy',
-      type: 'number'
-      // will have Count computation later
-    }),
-    Property.create({
-      name: 'availableBeds',
-      type: 'number',
-      computed: function(record) {
-        // computed function receives the record as parameter
-        const capacity = record.capacity || 0
-        const occupancy = record.occupancy || 0
-        return Math.max(0, capacity - occupancy)
-      }
     })
   ]
 })
 
-// Bed entity - individual bed within a dormitory
 const Bed = Entity.create({
   name: 'Bed',
   properties: [
-    Property.create({
-      name: 'bedNumber',
-      type: 'string'
+    Property.create({ name: 'id', type: 'string' }),
+    Property.create({ name: 'bedNumber', type: 'string' }),
+    Property.create({ 
+      name: 'isOccupied', 
+      type: 'boolean',
+      defaultValue: () => false
     }),
-    Property.create({
-      name: 'status',
-      type: 'string'
-      // Managed by StateMachine computation (no defaultValue)
-    }),
-    Property.create({
-      name: 'createdAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
+    Property.create({ 
+      name: 'createdAt', 
+      type: 'number',
+      defaultValue: () => Math.floor(Date.now() / 1000)
     })
   ]
 })
 
-// PointDeduction entity - record of points deducted from a user
 const PointDeduction = Entity.create({
   name: 'PointDeduction',
   properties: [
-    Property.create({
-      name: 'reason',
-      type: 'string'
+    Property.create({ name: 'id', type: 'string' }),
+    Property.create({ name: 'reason', type: 'string' }),
+    Property.create({ name: 'points', type: 'number' }),
+    Property.create({ name: 'description', type: 'string' }),
+    Property.create({ 
+      name: 'createdAt', 
+      type: 'number',
+      defaultValue: () => Math.floor(Date.now() / 1000)
     }),
-    Property.create({
-      name: 'points',
-      type: 'number'
-    }),
-    Property.create({
-      name: 'category',
-      type: 'string'
-    }),
-    Property.create({
-      name: 'occurredAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
-    }),
-    Property.create({
-      name: 'recordedAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
-    })
+    Property.create({ name: 'createdBy', type: 'string' })
   ]
 })
 
-// EvictionRequest entity - request to evict a user from dormitory
-const EvictionRequest = Entity.create({
-  name: 'EvictionRequest',
+const RemovalRequest = Entity.create({
+  name: 'RemovalRequest',
   properties: [
-    Property.create({
-      name: 'reason',
-      type: 'string'
-    }),
-    Property.create({
-      name: 'totalPoints',
-      type: 'number'
-    }),
-    Property.create({
-      name: 'status',
-      type: 'string'
-      // Managed by StateMachine computation (no defaultValue)
-    }),
-    Property.create({
-      name: 'requestedAt',
+    Property.create({ name: 'id', type: 'string' }),
+    Property.create({ name: 'reason', type: 'string' }),
+    Property.create({ 
+      name: 'status', 
       type: 'string',
-      defaultValue: () => new Date().toISOString()
+      defaultValue: () => 'pending'
     }),
-    Property.create({
-      name: 'processedAt',
-      type: 'string'
-      // Managed by StateMachine computation (no defaultValue)
+    Property.create({ 
+      name: 'createdAt', 
+      type: 'number',
+      defaultValue: () => Math.floor(Date.now() / 1000)
     }),
-    Property.create({
-      name: 'adminComment',
-      type: 'string'
-      // Will be set when ApproveEviction or RejectEviction is executed
-    })
+    Property.create({ name: 'processedAt', type: 'number' }),
+    Property.create({ name: 'adminComment', type: 'string' })
   ]
 })
 
-// ================== RELATIONS ==================
+// ========================= RELATIONS =========================
 
-// UserDormitoryRelation - assigns users to their dormitory (n:1)
-const UserDormitoryRelation = Relation.create({
-  name: 'UserDormitoryRelation',
+const UserDormitoryLeaderRelation = Relation.create({
+  name: 'UserDormitoryLeaderRelation',
   source: User,
-  sourceProperty: 'dormitory',
+  sourceProperty: 'managedDormitory',
   target: Dormitory,
-  targetProperty: 'residents',
-  type: 'n:1',
-  properties: [
-    Property.create({
-      name: 'assignedAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
-    })
-  ]
-})
-
-// UserBedRelation - assigns users to their specific bed (1:1)
-const UserBedRelation = Relation.create({
-  name: 'UserBedRelation',
-  source: User,
-  sourceProperty: 'bed',
-  target: Bed,
-  targetProperty: 'occupant',
+  targetProperty: 'dormitoryLeader',
   type: '1:1',
   properties: [
-    Property.create({
-      name: 'occupiedAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
+    Property.create({ 
+      name: 'assignedAt', 
+      type: 'number',
+      defaultValue: () => Math.floor(Date.now() / 1000)
     })
   ]
 })
 
-// DormitoryBedRelation - links dormitories to their beds (1:n)
-const DormitoryBedRelation = Relation.create({
-  name: 'DormitoryBedRelation',
+const DormitoryBedsRelation = Relation.create({
+  name: 'DormitoryBedsRelation',
   source: Dormitory,
   sourceProperty: 'beds',
   target: Bed,
@@ -265,26 +147,24 @@ const DormitoryBedRelation = Relation.create({
   properties: []
 })
 
-// DormitoryDormHeadRelation - designates the head of a dormitory (1:1)
-const DormitoryDormHeadRelation = Relation.create({
-  name: 'DormitoryDormHeadRelation',
-  source: Dormitory,
-  sourceProperty: 'dormHead',
-  target: User,
-  targetProperty: 'managedDormitory',
+const UserBedRelation = Relation.create({
+  name: 'UserBedRelation',
+  source: User,
+  sourceProperty: 'bed',
+  target: Bed,
+  targetProperty: 'occupant',
   type: '1:1',
   properties: [
-    Property.create({
-      name: 'appointedAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
+    Property.create({ 
+      name: 'assignedAt', 
+      type: 'number',
+      defaultValue: () => Math.floor(Date.now() / 1000)
     })
   ]
 })
 
-// UserPointDeductionRelation - links users to their point deduction records (1:n)
-const UserPointDeductionRelation = Relation.create({
-  name: 'UserPointDeductionRelation',
+const UserPointDeductionsRelation = Relation.create({
+  name: 'UserPointDeductionsRelation',
   source: User,
   sourceProperty: 'pointDeductions',
   target: PointDeduction,
@@ -293,1174 +173,1156 @@ const UserPointDeductionRelation = Relation.create({
   properties: []
 })
 
-// PointDeductionRecorderRelation - links point deductions to the user who recorded them (n:1)
-const PointDeductionRecorderRelation = Relation.create({
-  name: 'PointDeductionRecorderRelation',
-  source: PointDeduction,
-  sourceProperty: 'recorder',
-  target: User,
-  targetProperty: 'recordedDeductions',
-  type: 'n:1',
+const UserRemovalRequestsRelation = Relation.create({
+  name: 'UserRemovalRequestsRelation',
+  source: User,
+  sourceProperty: 'removalRequests',
+  target: RemovalRequest,
+  targetProperty: 'targetUser',
+  type: '1:n',
   properties: []
 })
 
-// EvictionRequestTargetUserRelation - links eviction requests to the target user (n:1)
-const EvictionRequestTargetUserRelation = Relation.create({
-  name: 'EvictionRequestTargetUserRelation',
-  source: EvictionRequest,
-  sourceProperty: 'targetUser',
-  target: User,
-  targetProperty: 'evictionRequests',
-  type: 'n:1',
+const DormitoryLeaderRemovalRequestsRelation = Relation.create({
+  name: 'DormitoryLeaderRemovalRequestsRelation',
+  source: User,
+  sourceProperty: 'submittedRemovalRequests',
+  target: RemovalRequest,
+  targetProperty: 'requestedBy',
+  type: '1:n',
   properties: []
 })
 
-// EvictionRequestRequesterRelation - links eviction requests to the requester (n:1)
-const EvictionRequestRequesterRelation = Relation.create({
-  name: 'EvictionRequestRequesterRelation',
-  source: EvictionRequest,
-  sourceProperty: 'requester',
-  target: User,
-  targetProperty: 'submittedEvictionRequests',
-  type: 'n:1',
-  properties: []
+// ========================= DICTIONARIES =========================
+
+const totalUsers = Dictionary.create({
+  name: 'totalUsers',
+  type: 'number',
+  collection: false
 })
 
-// EvictionRequestApproverRelation - links eviction requests to the admin who approved/rejected them (n:1)
-const EvictionRequestApproverRelation = Relation.create({
-  name: 'EvictionRequestApproverRelation',
-  source: EvictionRequest,
-  sourceProperty: 'approver',
-  target: User,
-  targetProperty: 'processedEvictionRequests',
-  type: 'n:1',
-  properties: [
-    Property.create({
-      name: 'approvedAt',
-      type: 'string',
-      defaultValue: () => new Date().toISOString()
-    })
-  ]
+const totalDormitories = Dictionary.create({
+  name: 'totalDormitories',
+  type: 'number',
+  collection: false
 })
 
+const totalOccupiedBeds = Dictionary.create({
+  name: 'totalOccupiedBeds',
+  type: 'number',
+  collection: false
+})
 
-// ================== INTERACTIONS ==================
+const totalAvailableBeds = Dictionary.create({
+  name: 'totalAvailableBeds',
+  type: 'number',
+  collection: false
+})
 
-// CreateDormitory - Admin creates a new dormitory with beds
+const pendingRemovalRequests = Dictionary.create({
+  name: 'pendingRemovalRequests',
+  type: 'number',
+  collection: false
+})
+
+// ========================= INTERACTIONS =========================
+
+// Admin Interactions
 const CreateDormitory = Interaction.create({
   name: 'CreateDormitory',
-  action: Action.create({ name: 'create' }),
+  action: Action.create({ name: 'createDormitory' }),
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'name',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'capacity',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'floor',
-        required: false
-      }),
-      PayloadItem.create({
-        name: 'building',
-        required: false
-      })
+      PayloadItem.create({ name: 'name' }),
+      PayloadItem.create({ name: 'capacity' }),
+      PayloadItem.create({ name: 'floor' }),
+      PayloadItem.create({ name: 'building' })
     ]
-  }),
+  })
 })
 
-// AssignUserToDormitory - Admin assigns a student to a dormitory bed
-const AssignUserToDormitory = Interaction.create({
-  name: 'AssignUserToDormitory',
-  action: Action.create({ name: 'assign' }),
+const UpdateDormitory = Interaction.create({
+  name: 'UpdateDormitory',
+  action: Action.create({ name: 'updateDormitory' }),
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'userId',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'dormitoryId',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'bedId',
-        required: true
-      })
+      PayloadItem.create({ name: 'dormitoryId' }),
+      PayloadItem.create({ name: 'name', required: false }),
+      PayloadItem.create({ name: 'floor', required: false }),
+      PayloadItem.create({ name: 'building', required: false })
     ]
-  }),
-  
+  })
 })
 
-// AppointDormHead - Admin appoints a user as dormitory head
-const AppointDormHead = Interaction.create({
-  name: 'AppointDormHead',
-  action: Action.create({ name: 'appoint' }),
+const UpdateDormitoryCapacity = Interaction.create({
+  name: 'UpdateDormitoryCapacity',
+  action: Action.create({ name: 'updateDormitoryCapacity' }),
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'userId',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'dormitoryId',
-        required: true
-      })
+      PayloadItem.create({ name: 'dormitoryId' }),
+      PayloadItem.create({ name: 'capacity' })
     ]
-  }),
-  
+  })
 })
 
-// RecordPointDeduction - Record a point deduction for violations
-const RecordPointDeduction = Interaction.create({
-  name: 'RecordPointDeduction',
-  action: Action.create({ name: 'deduct' }),
+const DeleteDormitory = Interaction.create({
+  action: Action.create({ name: 'deleteDormitory' }),
+  name: 'DeleteDormitory',
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'targetUserId',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'reason',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'points',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'category',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'occurredAt',
-        required: false
-      })
+      PayloadItem.create({ name: 'dormitoryId' })
     ]
-  }),
-  
+  })
 })
 
-// RequestEviction - DormHead requests to evict a problematic resident
-const RequestEviction = Interaction.create({
-  name: 'RequestEviction',
-  action: Action.create({ name: 'request' }),
+const RestoreDormitory = Interaction.create({
+  action: Action.create({ name: 'restoreDormitory' }),
+  name: 'RestoreDormitory',
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'targetUserId',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'reason',
-        required: true
-      })
+      PayloadItem.create({ name: 'dormitoryId' })
     ]
-  }),
-  
+  })
 })
 
-// ApproveEviction - Admin approves an eviction request
-const ApproveEviction = Interaction.create({
-  name: 'ApproveEviction',
-  action: Action.create({ name: 'approve' }),
+const AssignDormitoryLeader = Interaction.create({
+  action: Action.create({ name: 'assignDormitoryLeader' }),
+  name: 'AssignDormitoryLeader',
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'requestId',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'adminComment',
-        required: false
-      })
+      PayloadItem.create({ name: 'userId' }),
+      PayloadItem.create({ name: 'dormitoryId' })
     ]
-  }),
-  
+  })
 })
 
-// RejectEviction - Admin rejects an eviction request
-const RejectEviction = Interaction.create({
-  name: 'RejectEviction',
-  action: Action.create({ name: 'reject' }),
+const RemoveDormitoryLeader = Interaction.create({
+  action: Action.create({ name: 'removeDormitoryLeader' }),
+  name: 'RemoveDormitoryLeader',
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'requestId',
-        required: true
-      }),
-      PayloadItem.create({
-        name: 'adminComment',
-        required: false
-      })
+      PayloadItem.create({ name: 'userId' })
     ]
-  }),
-  
+  })
 })
 
-// Query interactions - read-only operations
+const AssignUserToBed = Interaction.create({
+  action: Action.create({ name: 'assignUserToBed' }),
+  name: 'AssignUserToBed',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' }),
+      PayloadItem.create({ name: 'bedId' })
+    ]
+  })
+})
 
-// ViewMyDormitory - View current user's dormitory information
+const RemoveUserFromBed = Interaction.create({
+  action: Action.create({ name: 'removeUserFromBed' }),
+  name: 'RemoveUserFromBed',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' })
+    ]
+  })
+})
+
+const ProcessRemovalRequest = Interaction.create({
+  action: Action.create({ name: 'processRemovalRequest' }),
+  name: 'ProcessRemovalRequest',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'requestId' }),
+      PayloadItem.create({ name: 'decision' }),
+      PayloadItem.create({ name: 'adminComment', required: false })
+    ]
+  })
+})
+
+const DeductPoints = Interaction.create({
+  action: Action.create({ name: 'deductPoints' }),
+  name: 'DeductPoints',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' }),
+      PayloadItem.create({ name: 'points' }),
+      PayloadItem.create({ name: 'reason' }),
+      PayloadItem.create({ name: 'description' })
+    ]
+  })
+})
+
+const CreateUser = Interaction.create({
+  action: Action.create({ name: 'createUser' }),
+  name: 'CreateUser',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'username' }),
+      PayloadItem.create({ name: 'password' }),
+      PayloadItem.create({ name: 'email' }),
+      PayloadItem.create({ name: 'name' }),
+      PayloadItem.create({ name: 'role', required: false })
+    ]
+  })
+})
+
+const DeleteUser = Interaction.create({
+  action: Action.create({ name: 'deleteUser' }),
+  name: 'DeleteUser',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' })
+    ]
+  })
+})
+
+// Dormitory Leader Interactions
+const SubmitRemovalRequest = Interaction.create({
+  action: Action.create({ name: 'submitRemovalRequest' }),
+  name: 'SubmitRemovalRequest',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' }),
+      PayloadItem.create({ name: 'reason' })
+    ]
+  })
+})
+
+const DeductResidentPoints = Interaction.create({
+  action: Action.create({ name: 'deductResidentPoints' }),
+  name: 'DeductResidentPoints',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' }),
+      PayloadItem.create({ name: 'points' }),
+      PayloadItem.create({ name: 'reason' }),
+      PayloadItem.create({ name: 'description' })
+    ]
+  })
+})
+
+// Resident Interactions
 const ViewMyDormitory = Interaction.create({
+  action: Action.create({ name: 'viewMyDormitory' }),
   name: 'ViewMyDormitory',
-  action: Action.create({ name: 'view' }),
   payload: Payload.create({
     items: []
   })
 })
 
-// ViewMyPoints - View current user's points and deduction history
 const ViewMyPoints = Interaction.create({
+  action: Action.create({ name: 'viewMyPoints' }),
   name: 'ViewMyPoints',
-  action: Action.create({ name: 'view' }),
   payload: Payload.create({
     items: []
   })
 })
 
-// ViewDormitoryMembers - View members of a dormitory
-const ViewDormitoryMembers = Interaction.create({
-  name: 'ViewDormitoryMembers',
-  action: Action.create({ name: 'view' }),
+const UpdateProfile = Interaction.create({
+  action: Action.create({ name: 'updateProfile' }),
+  name: 'UpdateProfile',
   payload: Payload.create({
     items: [
-      PayloadItem.create({
-        name: 'dormitoryId',
-        required: false
-      })
+      PayloadItem.create({ name: 'name', required: false }),
+      PayloadItem.create({ name: 'email', required: false })
     ]
-  }),
-  
+  })
 })
 
-// ViewAllDormitories - View all dormitories in the system
-const ViewAllDormitories = Interaction.create({
-  name: 'ViewAllDormitories',
-  action: Action.create({ name: 'view' }),
+// Authentication Interactions
+const Login = Interaction.create({
+  action: Action.create({ name: 'login' }),
+  name: 'Login',
   payload: Payload.create({
-    items: []
-  }),
+    items: [
+      PayloadItem.create({ name: 'username' }),
+      PayloadItem.create({ name: 'password' })
+    ]
+  })
 })
 
-// ================== EXPORTS ==================
+const Registration = Interaction.create({
+  action: Action.create({ name: 'registration' }),
+  name: 'Registration',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'username' }),
+      PayloadItem.create({ name: 'password' }),
+      PayloadItem.create({ name: 'email' }),
+      PayloadItem.create({ name: 'name' })
+    ]
+  })
+})
+
+const ChangePassword = Interaction.create({
+  action: Action.create({ name: 'changePassword' }),
+  name: 'ChangePassword',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'oldPassword' }),
+      PayloadItem.create({ name: 'newPassword' })
+    ]
+  })
+})
+
+const UpdateUsername = Interaction.create({
+  action: Action.create({ name: 'updateUsername' }),
+  name: 'UpdateUsername',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'newUsername' })
+    ]
+  })
+})
+
+// Soft delete/restore interactions for User
+const RestoreUser = Interaction.create({
+  action: Action.create({ name: 'restoreUser' }),
+  name: 'RestoreUser',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' })
+    ]
+  })
+})
+
+// Query Interactions
+const GetDormitories = Interaction.create({
+  action: Action.create({ name: 'getDormitories' }),
+  name: 'GetDormitories',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'includeDeleted', required: false })
+    ]
+  })
+})
+
+const GetDormitoryDetail = Interaction.create({
+  action: Action.create({ name: 'getDormitoryDetail' }),
+  name: 'GetDormitoryDetail',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'dormitoryId' })
+    ]
+  })
+})
+
+const GetUsers = Interaction.create({
+  action: Action.create({ name: 'getUsers' }),
+  name: 'GetUsers',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'role', required: false }),
+      PayloadItem.create({ name: 'dormitoryId', required: false }),
+      PayloadItem.create({ name: 'includeDeleted', required: false })
+    ]
+  })
+})
+
+const GetRemovalRequests = Interaction.create({
+  action: Action.create({ name: 'getRemovalRequests' }),
+  name: 'GetRemovalRequests',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'status', required: false }),
+      PayloadItem.create({ name: 'dormitoryId', required: false })
+    ]
+  })
+})
+
+const GetPointDeductions = Interaction.create({
+  action: Action.create({ name: 'getPointDeductions' }),
+  name: 'GetPointDeductions',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId', required: false }),
+      PayloadItem.create({ name: 'startDate', required: false }),
+      PayloadItem.create({ name: 'endDate', required: false })
+    ]
+  })
+})
+
+// Admin interaction for promoting users to admin role
+const PromoteToAdmin = Interaction.create({
+  action: Action.create({ name: 'promoteToAdmin' }),
+  name: 'PromoteToAdmin',
+  payload: Payload.create({
+    items: [
+      PayloadItem.create({ name: 'userId' })
+    ]
+  })
+})
+
+// ========================= EXPORTS =========================
 
 export const entities = [
   User,
   Dormitory,
   Bed,
   PointDeduction,
-  EvictionRequest
+  RemovalRequest
 ]
 
 export const relations = [
-  UserDormitoryRelation,
+  UserDormitoryLeaderRelation,
+  DormitoryBedsRelation,
   UserBedRelation,
-  DormitoryBedRelation,
-  DormitoryDormHeadRelation,
-  UserPointDeductionRelation,
-  PointDeductionRecorderRelation,
-  EvictionRequestTargetUserRelation,
-  EvictionRequestRequesterRelation,
-  EvictionRequestApproverRelation
+  UserPointDeductionsRelation,
+  UserRemovalRequestsRelation,
+  DormitoryLeaderRemovalRequestsRelation
+]
+
+// Export individual relations for testing
+export {
+  UserDormitoryLeaderRelation,
+  DormitoryBedsRelation,
+  UserBedRelation,
+  UserPointDeductionsRelation,
+  UserRemovalRequestsRelation,
+  DormitoryLeaderRemovalRequestsRelation
+}
+
+export const dictionaries = [
+  totalUsers,
+  totalDormitories,
+  totalOccupiedBeds,
+  totalAvailableBeds,
+  pendingRemovalRequests
 ]
 
 export const interactions = [
+  // Admin
   CreateDormitory,
-  AssignUserToDormitory,
-  AppointDormHead,
-  RecordPointDeduction,
-  RequestEviction,
-  ApproveEviction,
-  RejectEviction,
+  UpdateDormitory,
+  UpdateDormitoryCapacity,
+  DeleteDormitory,
+  RestoreDormitory,
+  AssignDormitoryLeader,
+  RemoveDormitoryLeader,
+  AssignUserToBed,
+  RemoveUserFromBed,
+  ProcessRemovalRequest,
+  DeductPoints,
+  CreateUser,
+  DeleteUser,
+  RestoreUser,
+  PromoteToAdmin,
+  // Dormitory Leader
+  SubmitRemovalRequest,
+  DeductResidentPoints,
+  // Resident
   ViewMyDormitory,
   ViewMyPoints,
-  ViewDormitoryMembers,
-  ViewAllDormitories
+  UpdateProfile,
+  // Authentication
+  Login,
+  Registration,
+  ChangePassword,
+  UpdateUsername,
+  // Query
+  GetDormitories,
+  GetDormitoryDetail,
+  GetUsers,
+  GetRemovalRequests,
+  GetPointDeductions
 ]
 
-export const activities: Activity[] = []
+export const activities: any[] = []
+export const dicts = dictionaries
 
-export const dicts = []  // Global dictionaries - none needed for this system
+// ========================= COMPUTATIONS =========================
 
-// ================== COMPUTATIONS ==================
-// Will be added using assignment pattern after exports
-
-// === User.role StateMachine ===
-// State nodes for user role transitions
-const userRoleState = StateNode.create({ name: 'user' })
-const dormHeadRoleState = StateNode.create({ name: 'dormHead' })
-
-const UserRoleStateMachine = StateMachine.create({
-  states: [userRoleState, dormHeadRoleState],
-  defaultState: userRoleState,
-  transfers: [
-    StateTransfer.create({
-      current: userRoleState,
-      next: dormHeadRoleState,
-      trigger: AppointDormHead,
-      computeTarget: (event) => ({ id: event.payload.userId })
-    })
-    // Note: No transfer back to 'user' state - once appointed, they remain dormHead
-  ]
+// Relation: UserDormitoryLeaderRelation - StateMachine computation
+const relationNotExistsState = StateNode.create({ 
+  name: 'notExists',
+  computeValue: () => null  // Return null means no relation
 })
 
-// Apply computation to User.role property
-User.properties.find(p => p.name === 'role').computation = UserRoleStateMachine
+const relationExistsState = StateNode.create({ 
+  name: 'exists',
+  computeValue: () => ({
+    assignedAt: Math.floor(Date.now() / 1000)
+  })
+})
 
-// === User.status StateMachine ===
-// State nodes for user status transitions
-const activeUserState = StateNode.create({ name: 'active' })
-const inactiveUserState = StateNode.create({ name: 'inactive' })
-
-const UserStatusStateMachine = StateMachine.create({
-  states: [activeUserState, inactiveUserState],
-  defaultState: activeUserState,
+UserDormitoryLeaderRelation.computation = StateMachine.create({
+  states: [relationNotExistsState, relationExistsState],
   transfers: [
     StateTransfer.create({
-      current: activeUserState,
-      next: inactiveUserState,
-      trigger: ApproveEviction,
+      trigger: AssignDormitoryLeader,
+      current: relationNotExistsState,
+      next: relationExistsState,
+      computeTarget: function(event) {
+        return {
+          source: { id: event.payload.userId },
+          target: { id: event.payload.dormitoryId }
+        }
+      }
+    }),
+    StateTransfer.create({
+      trigger: RemoveDormitoryLeader,
+      current: relationExistsState,
+      next: relationNotExistsState,
       computeTarget: async function(this: Controller, event) {
-        // Get the eviction request details
-        const request = await this.system.storage.findOne(
-          'EvictionRequest',
-          MatchExp.atom({ key: 'id', value: ['=', event.payload.requestId] }),
+        // Find existing relation to remove by userId
+        const relation = await this.system.storage.findOne(
+          UserDormitoryLeaderRelation.name,
+          MatchExp.atom({
+            key: 'source.id',
+            value: ['=', event.payload.userId]
+          }),
           undefined,
-          [['targetUser', { attributeQuery: ['id'] }]]
+          ['id']
         )
-        // Return the target user who is being evicted
-        return request?.targetUser ? { id: request.targetUser.id } : null
+        return relation
       }
     })
-    // Note: No transfer back to 'active' state - once evicted, they remain inactive
-  ]
+  ],
+  defaultState: relationNotExistsState
 })
 
-// Apply computation to User.status property  
-User.properties.find(p => p.name === 'status').computation = UserStatusStateMachine
-
-// === User.points StateMachine ===
-// This uses a single-state machine with self-transition to track point deductions
-// IMPORTANT: Points always initialize to 100. To set different initial points, 
-// use RecordPointDeduction after user creation.
-const userPointsState = StateNode.create({
-  name: 'tracking',
-  computeValue: (lastValue, event) => {
-    // Initialize to 100 if no previous value
-    if (lastValue === undefined || lastValue === null) {
-      return 100
+// Entity: User - Transform computation for creation
+User.computation = Transform.create({
+  record: InteractionEventEntity,
+  callback: function(event) {
+    if (event.interactionName === 'CreateUser') {
+      return {
+        username: event.payload.username,  // Set initial username
+        password: event.payload.password,  // Should be hashed in production
+        email: event.payload.email,
+        name: event.payload.name,
+        points: 100,  // Initial points
+        role: event.payload.role || 'resident',
+        createdAt: Math.floor(Date.now() / 1000),
+        isDeleted: false
+      }
     }
-    // Deduct points if this is a RecordPointDeduction event
-    if (event?.interactionName === 'RecordPointDeduction') {
-      const deduction = event.payload?.points || 0
-      const newPoints = Math.max(0, lastValue - deduction) // Ensure points don't go below 0
-      return newPoints
+    if (event.interactionName === 'Registration') {
+      return {
+        username: event.payload.username,  // Set initial username
+        password: event.payload.password,  // Should be hashed in production
+        email: event.payload.email,
+        name: event.payload.name,
+        points: 100,  // Initial points
+        role: 'resident',  // Registration always creates residents
+        createdAt: Math.floor(Date.now() / 1000),
+        isDeleted: false
+      }
     }
-    // Keep current value for other events
-    return lastValue
+    return null
   }
 })
 
-const UserPointsStateMachine = StateMachine.create({
-  states: [userPointsState],
-  defaultState: userPointsState,
-  transfers: [
-    StateTransfer.create({
-      current: userPointsState,
-      next: userPointsState, // Self-transition
-      trigger: RecordPointDeduction,
-      computeTarget: (event) => ({ id: event.payload.targetUserId })
-    })
-  ]
+// Entity: Dormitory - Transform computation for creation  
+// Also creates Bed entities and DormitoryBedsRelation
+Dormitory.computation = Transform.create({
+  record: InteractionEventEntity,
+  callback: function(event) {
+    if (event.interactionName === 'CreateDormitory') {
+      const dormitory = {
+        name: event.payload.name,
+        capacity: event.payload.capacity,
+        floor: event.payload.floor,
+        building: event.payload.building,
+        createdAt: Math.floor(Date.now() / 1000),
+        isDeleted: false,
+        occupiedBeds: 0
+      }
+      
+      // Create beds through the relation property
+      const beds = []
+      for (let i = 1; i <= event.payload.capacity; i++) {
+        beds.push({
+          bedNumber: `${i}`,
+          isOccupied: false,
+          createdAt: Math.floor(Date.now() / 1000)
+        })
+      }
+      
+      // Return dormitory with beds property to create the relation
+      return {
+        ...dormitory,
+        beds: beds  // This will create Bed entities and DormitoryBedsRelation
+      }
+    }
+    return null
+  }
 })
 
-// Apply computation to User.points property
-User.properties.find(p => p.name === 'points').computation = UserPointsStateMachine
-
-// === PointDeduction Transform ===
-// Creates PointDeduction entities from RecordPointDeduction interactions
+// Entity: PointDeduction - Transform computation for creation
+// Also creates UserPointDeductionsRelation
 PointDeduction.computation = Transform.create({
   record: InteractionEventEntity,
-  attributeQuery: ['interactionName', 'payload', 'user'],
   callback: function(event) {
-    if (event.interactionName === 'RecordPointDeduction') {
+    if (event.interactionName === 'DeductPoints' || event.interactionName === 'DeductResidentPoints') {
       return {
         reason: event.payload.reason,
         points: event.payload.points,
-        category: event.payload.category,
-        occurredAt: event.payload.occurredAt || new Date().toISOString(),
-        recordedAt: new Date().toISOString(),
-        // Relations will be created separately
-        user: { id: event.payload.targetUserId },
-        recorder: { id: event.user.id }
+        description: event.payload.description,
+        createdAt: Math.floor(Date.now() / 1000),
+        createdBy: event.user.id,
+        user: { id: event.payload.userId }  // This will create UserPointDeductionsRelation
       }
     }
     return null
   }
 })
 
-// === User.totalDeductions Summation ===
-// Sums all point deductions for a user
-User.properties.find(p => p.name === 'totalDeductions').computation = Summation.create({
-  property: 'pointDeductions',  // Use property name from UserPointDeductionRelation
-  attributeQuery: ['points']  // Sum the points field from related PointDeduction entities
-})
-
-// === User.deductionCount Count ===
-// Counts the number of point deductions for a user
-User.properties.find(p => p.name === 'deductionCount').computation = Count.create({
-  property: 'pointDeductions'  // Count related PointDeduction entities via UserPointDeductionRelation
-})
-
-// === Dormitory Transform ===
-// Creates Dormitory entities from CreateDormitory interactions
-Dormitory.computation = Transform.create({
+// Entity: RemovalRequest - Transform computation for creation
+// Also creates UserRemovalRequestsRelation and DormitoryLeaderRemovalRequestsRelation
+RemovalRequest.computation = Transform.create({
   record: InteractionEventEntity,
-  attributeQuery: ['interactionName', 'payload', 'user'],
   callback: function(event) {
-    if (event.interactionName === 'CreateDormitory') {
-      // Create Dormitory with initial values
-      return {
-        name: event.payload.name,
-        capacity: event.payload.capacity,
-        floor: event.payload.floor || 0,
-        building: event.payload.building || ''
-        // occupancy will be computed by Count computation
-        // status and availableBeds are computed properties
-      }
-    }
-    return null
-  }
-})
-
-// Dormitory.status and Dormitory.availableBeds are now defined as computed properties directly in the Entity definition
-
-// === Bed Transform ===
-// Creates Bed entities when a Dormitory is created
-Bed.computation = Transform.create({
-  record: Dormitory,
-  attributeQuery: ['id', 'capacity'],
-  callback: function(dormitory) {
-    // Create beds for the dormitory (one bed per capacity unit)
-    const beds = []
-    for (let i = 1; i <= dormitory.capacity; i++) {
-      beds.push({
-        bedNumber: i.toString().padStart(3, '0'), // Format as 001, 002, etc.
-        dormitory: { id: dormitory.id }
-      })
-    }
-    return beds
-  }
-})
-
-// === Bed.status StateMachine ===
-// State nodes for bed status
-const vacantBedState = StateNode.create({ name: 'vacant' })
-const occupiedBedState = StateNode.create({ name: 'occupied' })
-
-const BedStatusStateMachine = StateMachine.create({
-  states: [vacantBedState, occupiedBedState],
-  defaultState: vacantBedState,
-  transfers: [
-    StateTransfer.create({
-      current: vacantBedState,
-      next: occupiedBedState,
-      trigger: AssignUserToDormitory,
-      computeTarget: (event) => ({ id: event.payload.bedId })
-    })
-    // When a user is evicted, bed status changes would need to be handled separately
-    // This would typically be done via a separate interaction or as part of eviction cleanup
-  ]
-})
-
-// Apply computation to Bed.status property
-Bed.properties.find(p => p.name === 'status').computation = BedStatusStateMachine
-
-// === EvictionRequest Transform ===
-// Creates EvictionRequest entities from RequestEviction interactions
-EvictionRequest.computation = Transform.create({
-  record: InteractionEventEntity,
-  attributeQuery: ['interactionName', 'payload', 'user'],
-  callback: function(event) {
-    if (event.interactionName === 'RequestEviction') {
+    if (event.interactionName === 'SubmitRemovalRequest') {
       return {
         reason: event.payload.reason,
-        totalPoints: event.payload.totalPoints || 0,
-        requestedAt: new Date().toISOString(),
-        // Relations will be created separately
-        targetUser: { id: event.payload.targetUserId },
-        requester: { id: event.user.id }
+        status: 'pending',
+        createdAt: Math.floor(Date.now() / 1000),
+        processedAt: null,  // Initially null
+        adminComment: null,  // Initially null
+        targetUser: { id: event.payload.userId },  // This will create UserRemovalRequestsRelation
+        requestedBy: { id: event.user.id }  // This will create DormitoryLeaderRemovalRequestsRelation
       }
     }
     return null
   }
 })
 
-// === EvictionRequest.status StateMachine ===
-// State nodes for eviction request status
-const pendingState = StateNode.create({ name: 'pending' })
-const approvedState = StateNode.create({ name: 'approved' })
-const rejectedState = StateNode.create({ name: 'rejected' })
+// Relation: UserBedRelation - StateMachine computation for creation and deletion
+const userBedNotExistsState = StateNode.create({
+  name: 'relationNotExists',
+  computeValue: () => null
+})
 
-const EvictionRequestStatusStateMachine = StateMachine.create({
-  states: [pendingState, approvedState, rejectedState],
-  defaultState: pendingState,
+const userBedExistsState = StateNode.create({
+  name: 'relationExists',
+  computeValue: () => ({
+    assignedAt: Math.floor(Date.now() / 1000)
+  })
+})
+
+UserBedRelation.computation = StateMachine.create({
+  states: [userBedNotExistsState, userBedExistsState],
   transfers: [
     StateTransfer.create({
-      current: pendingState,
-      next: approvedState,
-      trigger: ApproveEviction,
-      computeTarget: (event) => ({ id: event.payload.requestId })
-    }),
-    StateTransfer.create({
-      current: pendingState,
-      next: rejectedState,
-      trigger: RejectEviction,
-      computeTarget: (event) => ({ id: event.payload.requestId })
-    })
-  ]
-})
-
-// Apply computation to EvictionRequest.status property
-EvictionRequest.properties.find(p => p.name === 'status').computation = EvictionRequestStatusStateMachine
-
-// === EvictionRequest.processedAt StateMachine ===
-// Using a single-node StateMachine to record processing timestamp
-const evictionProcessingState = StateNode.create({
-  name: 'processedAt',
-  computeValue: (lastValue, event) => {
-    // Set timestamp when approved or rejected
-    if (event?.interactionName === 'ApproveEviction' || 
-        event?.interactionName === 'RejectEviction') {
-      return new Date().toISOString()
-    }
-    return lastValue
-  }
-})
-
-const EvictionRequestProcessedAtStateMachine = StateMachine.create({
-  states: [evictionProcessingState],
-  defaultState: evictionProcessingState,
-  transfers: [
-    StateTransfer.create({
-      current: evictionProcessingState,
-      next: evictionProcessingState,
-      trigger: ApproveEviction,
-      computeTarget: (event) => ({ id: event.payload.requestId })
-    }),
-    StateTransfer.create({
-      current: evictionProcessingState,
-      next: evictionProcessingState,
-      trigger: RejectEviction,
-      computeTarget: (event) => ({ id: event.payload.requestId })
-    })
-  ]
-})
-
-// Apply computation to EvictionRequest.processedAt property
-EvictionRequest.properties.find(p => p.name === 'processedAt').computation = EvictionRequestProcessedAtStateMachine
-
-// === UserBedRelation Transform ===
-// Creates UserBedRelation when user is assigned to a bed
-UserBedRelation.computation = Transform.create({
-  record: InteractionEventEntity,
-  attributeQuery: ['interactionName', 'payload'],
-  callback: function(event) {
-    if (event.interactionName === 'AssignUserToDormitory') {
-      return {
+      trigger: AssignUserToBed,
+      current: userBedNotExistsState,
+      next: userBedExistsState,
+      computeTarget: (event) => ({
         source: { id: event.payload.userId },
         target: { id: event.payload.bedId }
+      })
+    }),
+    StateTransfer.create({
+      trigger: RemoveUserFromBed,
+      current: userBedExistsState,
+      next: userBedNotExistsState,
+      computeTarget: async function(this: Controller, event) {
+        const relation = await this.system.storage.findOne(
+          UserBedRelation.name,
+          MatchExp.atom({
+            key: 'source.id',
+            value: ['=', event.payload.userId]
+          }),
+          undefined,
+          ['id']
+        )
+        return relation
       }
-    }
-    return null
-  }
+    })
+  ],
+  defaultState: userBedNotExistsState
 })
 
-// === UserDormitoryRelation Transform ===
-// Creates UserDormitoryRelation when user is assigned to a dormitory
-UserDormitoryRelation.computation = Transform.create({
-  record: InteractionEventEntity,
-  attributeQuery: ['interactionName', 'payload'],
-  callback: function(event) {
-    if (event.interactionName === 'AssignUserToDormitory') {
-      return {
-        source: { id: event.payload.userId },
-        target: { id: event.payload.dormitoryId }
-      }
-    }
-    return null
-  }
-})
-
-// === Dormitory.occupancy Count ===
-// Counts the number of users assigned to the dormitory
-Dormitory.properties.find(p => p.name === 'occupancy').computation = Count.create({
-  property: 'residents'  // Count residents via UserDormitoryRelation (targetProperty)
-})
-
-// === EvictionRequest.adminComment StateMachine ===
-// Tracks admin comments on eviction requests
-const adminCommentState = StateNode.create({
-  name: 'comment',
+// Property: User.username - StateMachine computation for updates only
+const usernameState = StateNode.create({
+  name: 'username',
   computeValue: (lastValue, event) => {
-    // Set admin comment when approved or rejected
-    if (event?.interactionName === 'ApproveEviction' || 
-        event?.interactionName === 'RejectEviction') {
-      return event.payload?.adminComment || null
+    // For UpdateUsername, set new username
+    if (event?.interactionName === 'UpdateUsername') {
+      return event.payload.newUsername
     }
+    // Preserve existing value
     return lastValue
   }
 })
 
-const EvictionRequestAdminCommentStateMachine = StateMachine.create({
-  states: [adminCommentState],
-  defaultState: adminCommentState,
+User.properties.find(p => p.name === 'username').computation = StateMachine.create({
+  states: [usernameState],
   transfers: [
     StateTransfer.create({
-      current: adminCommentState,
-      next: adminCommentState,
-      trigger: ApproveEviction,
-      computeTarget: (event) => ({ id: event.payload.requestId })
+      trigger: UpdateUsername,
+      current: usernameState,
+      next: usernameState,
+      computeTarget: (event) => ({ id: event.user.id })
+    })
+  ],
+  defaultState: usernameState
+})
+
+// Property: User.password - StateMachine computation for updates
+const passwordState = StateNode.create({
+  name: 'password',
+  computeValue: (lastValue, event) => {
+    // For ChangePassword, set new password (should be hashed in production)
+    if (event?.interactionName === 'ChangePassword') {
+      return event.payload.newPassword
+    }
+    // Preserve existing value
+    return lastValue
+  }
+})
+
+User.properties.find(p => p.name === 'password').computation = StateMachine.create({
+  states: [passwordState],
+  transfers: [
+    StateTransfer.create({
+      trigger: ChangePassword,
+      current: passwordState,
+      next: passwordState,
+      computeTarget: (event) => ({ id: event.user.id })
+    })
+  ],
+  defaultState: passwordState
+})
+
+// Property: User.email - StateMachine computation for updates
+const emailState = StateNode.create({
+  name: 'email',
+  computeValue: (lastValue, event) => {
+    // For UpdateProfile, set new email
+    if (event?.interactionName === 'UpdateProfile' && event.payload.email) {
+      return event.payload.email
+    }
+    // Preserve existing value (set by CreateUser/Registration in entity computation)
+    return lastValue
+  }
+})
+
+User.properties.find(p => p.name === 'email').computation = StateMachine.create({
+  states: [emailState],
+  transfers: [
+    StateTransfer.create({
+      trigger: UpdateProfile,
+      current: emailState,
+      next: emailState,
+      computeTarget: (event) => ({ id: event.user.id })
+    })
+  ],
+  defaultState: emailState
+})
+
+// Property: User.name - StateMachine computation for updates
+const nameState = StateNode.create({
+  name: 'name',
+  computeValue: (lastValue, event) => {
+    // For UpdateProfile, set new name
+    if (event?.interactionName === 'UpdateProfile' && event.payload.name) {
+      return event.payload.name
+    }
+    // Preserve existing value (set by CreateUser/Registration in entity computation)
+    return lastValue
+  }
+})
+
+User.properties.find(p => p.name === 'name').computation = StateMachine.create({
+  states: [nameState],
+  transfers: [
+    StateTransfer.create({
+      trigger: UpdateProfile,
+      current: nameState,
+      next: nameState,
+      computeTarget: (event) => ({ id: event.user.id })
+    })
+  ],
+  defaultState: nameState
+})
+
+// Property: User.role - StateMachine computation for role transitions
+const roleState = StateNode.create({
+  name: 'role',
+  computeValue: (lastValue, event) => {
+    // AssignDormitoryLeader: changes role to 'dormitoryLeader'
+    if (event?.interactionName === 'AssignDormitoryLeader') {
+      return 'dormitoryLeader'
+    }
+    // RemoveDormitoryLeader: changes role back to 'resident'
+    if (event?.interactionName === 'RemoveDormitoryLeader') {
+      return 'resident'
+    }
+    // PromoteToAdmin: changes role to 'admin'
+    if (event?.interactionName === 'PromoteToAdmin') {
+      return 'admin'
+    }
+    // Preserve existing value (set by CreateUser/Registration in entity computation)
+    return lastValue
+  }
+})
+
+User.properties.find(p => p.name === 'role').computation = StateMachine.create({
+  states: [roleState],
+  transfers: [
+    StateTransfer.create({
+      trigger: AssignDormitoryLeader,
+      current: roleState,
+      next: roleState,
+      computeTarget: (event) => ({ id: event.payload.userId })
     }),
     StateTransfer.create({
-      current: adminCommentState,
-      next: adminCommentState,
-      trigger: RejectEviction,
+      trigger: RemoveDormitoryLeader,
+      current: roleState,
+      next: roleState,
+      computeTarget: (event) => ({ id: event.payload.userId })
+    }),
+    StateTransfer.create({
+      trigger: PromoteToAdmin,
+      current: roleState,
+      next: roleState,
+      computeTarget: (event) => ({ id: event.payload.userId })
+    })
+  ],
+  defaultState: roleState
+})
+
+// Property: User.points - StateMachine computation for penalty points
+const pointsState = StateNode.create({
+  name: 'points',
+  computeValue: (lastValue, event) => {
+    // For DeductPoints or DeductResidentPoints, reduce points
+    if (event?.interactionName === 'DeductPoints' || event?.interactionName === 'DeductResidentPoints') {
+      const currentPoints = typeof lastValue === 'number' ? lastValue : 100
+      const deduction = event.payload.points || 0
+      // Ensure points never go below 0
+      return Math.max(0, currentPoints - deduction)
+    }
+    // Preserve existing value (set by CreateUser/Registration in entity computation)
+    return typeof lastValue === 'number' ? lastValue : 100
+  }
+})
+
+User.properties.find(p => p.name === 'points').computation = StateMachine.create({
+  states: [pointsState],
+  transfers: [
+    StateTransfer.create({
+      trigger: DeductPoints,
+      current: pointsState,
+      next: pointsState,
+      computeTarget: (event) => ({ id: event.payload.userId })
+    }),
+    StateTransfer.create({
+      trigger: DeductResidentPoints,
+      current: pointsState,
+      next: pointsState,
+      computeTarget: (event) => ({ id: event.payload.userId })
+    })
+  ],
+  defaultState: pointsState
+})
+
+// Property: User.isDeleted - StateMachine computation for soft deletion
+const isDeletedState = StateNode.create({
+  name: 'isDeleted',
+  computeValue: (lastValue, event) => {
+    // For DeleteUser, set to true
+    if (event?.interactionName === 'DeleteUser') {
+      return true
+    }
+    // For RestoreUser, set to false
+    if (event?.interactionName === 'RestoreUser') {
+      return false
+    }
+    // Preserve existing value (set to false by CreateUser/Registration in entity computation)
+    return typeof lastValue === 'boolean' ? lastValue : false
+  }
+})
+
+User.properties.find(p => p.name === 'isDeleted').computation = StateMachine.create({
+  states: [isDeletedState],
+  transfers: [
+    StateTransfer.create({
+      trigger: DeleteUser,
+      current: isDeletedState,
+      next: isDeletedState,
+      computeTarget: (event) => ({ id: event.payload.userId })
+    }),
+    StateTransfer.create({
+      trigger: RestoreUser,
+      current: isDeletedState,
+      next: isDeletedState,
+      computeTarget: (event) => ({ id: event.payload.userId })
+    })
+  ],
+  defaultState: isDeletedState
+})
+
+// Property: Dormitory.building - StateMachine computation for updates
+const dormitoryBuildingState = StateNode.create({
+  name: 'building',
+  computeValue: (lastValue, event) => {
+    // For UpdateDormitory, set new building if provided
+    if (event?.interactionName === 'UpdateDormitory' && event.payload.building) {
+      return event.payload.building
+    }
+    // Preserve existing value (set by CreateDormitory in entity computation)
+    return lastValue
+  }
+})
+
+Dormitory.properties.find(p => p.name === 'building').computation = StateMachine.create({
+  states: [dormitoryBuildingState],
+  transfers: [
+    StateTransfer.create({
+      trigger: UpdateDormitory,
+      current: dormitoryBuildingState,
+      next: dormitoryBuildingState,
+      computeTarget: (event) => ({ id: event.payload.dormitoryId })
+    })
+  ],
+  defaultState: dormitoryBuildingState
+})
+
+// Property: Dormitory.capacity - StateMachine computation for capacity updates
+const dormitoryCapacityState = StateNode.create({
+  name: 'capacity',
+  computeValue: (lastValue, event) => {
+    // For UpdateDormitoryCapacity, set new capacity
+    if (event?.interactionName === 'UpdateDormitoryCapacity' && event.payload.capacity) {
+      // Validate capacity is between 4 and 6
+      const capacity = event.payload.capacity
+      if (capacity >= 4 && capacity <= 6) {
+        return capacity
+      }
+      // If invalid, preserve existing value
+      return lastValue
+    }
+    // Preserve existing value (set by CreateDormitory in entity computation)
+    return lastValue
+  }
+})
+
+Dormitory.properties.find(p => p.name === 'capacity').computation = StateMachine.create({
+  states: [dormitoryCapacityState],
+  transfers: [
+    StateTransfer.create({
+      trigger: UpdateDormitoryCapacity,
+      current: dormitoryCapacityState,
+      next: dormitoryCapacityState,
+      computeTarget: (event) => ({ id: event.payload.dormitoryId })
+    })
+  ],
+  defaultState: dormitoryCapacityState
+})
+
+// Property: Dormitory.floor - StateMachine computation for updates
+const dormitoryFloorState = StateNode.create({
+  name: 'floor',
+  computeValue: (lastValue, event) => {
+    // For UpdateDormitory, set new floor if provided
+    if (event?.interactionName === 'UpdateDormitory' && event.payload.floor !== undefined) {
+      // Floor is a number, validate it's a reasonable floor number
+      const floor = event.payload.floor
+      if (typeof floor === 'number' && floor > 0) {
+        return floor
+      }
+    }
+    // Preserve existing value (set by CreateDormitory in entity computation)
+    return lastValue
+  }
+})
+
+Dormitory.properties.find(p => p.name === 'floor').computation = StateMachine.create({
+  states: [dormitoryFloorState],
+  transfers: [
+    StateTransfer.create({
+      trigger: UpdateDormitory,
+      current: dormitoryFloorState,
+      next: dormitoryFloorState,
+      computeTarget: (event) => ({ id: event.payload.dormitoryId })
+    })
+  ],
+  defaultState: dormitoryFloorState
+})
+
+// Property: Dormitory.name - StateMachine computation for updates
+const dormitoryNameState = StateNode.create({
+  name: 'name',
+  computeValue: (lastValue, event) => {
+    // For UpdateDormitory, set new name if provided
+    if (event?.interactionName === 'UpdateDormitory' && event.payload.name) {
+      return event.payload.name
+    }
+    // Preserve existing value (set by CreateDormitory in entity computation)
+    return lastValue
+  }
+})
+
+Dormitory.properties.find(p => p.name === 'name').computation = StateMachine.create({
+  states: [dormitoryNameState],
+  transfers: [
+    StateTransfer.create({
+      trigger: UpdateDormitory,
+      current: dormitoryNameState,
+      next: dormitoryNameState,
+      computeTarget: (event) => ({ id: event.payload.dormitoryId })
+    })
+  ],
+  defaultState: dormitoryNameState
+})
+
+// Property: Dormitory.isDeleted - StateMachine computation for soft deletion
+const dormitoryNotDeletedState = StateNode.create({
+  name: 'notDeleted',
+  computeValue: () => false
+})
+
+const dormitoryDeletedState = StateNode.create({
+  name: 'deleted',
+  computeValue: () => true
+})
+
+// Remove the defaultValue from the property since we're adding computation
+Dormitory.properties.find(p => p.name === 'isDeleted').defaultValue = undefined
+
+Dormitory.properties.find(p => p.name === 'isDeleted').computation = StateMachine.create({
+  states: [dormitoryNotDeletedState, dormitoryDeletedState],
+  transfers: [
+    StateTransfer.create({
+      trigger: DeleteDormitory,
+      current: dormitoryNotDeletedState,
+      next: dormitoryDeletedState,
+      computeTarget: (event) => ({ id: event.payload.dormitoryId })
+    }),
+    StateTransfer.create({
+      trigger: RestoreDormitory,
+      current: dormitoryDeletedState,
+      next: dormitoryNotDeletedState,
+      computeTarget: (event) => ({ id: event.payload.dormitoryId })
+    })
+  ],
+  defaultState: dormitoryNotDeletedState
+})
+
+// Property: Bed.isOccupied - Custom computation to check if bed has an occupant
+// Remove the defaultValue from the property since we're adding computation
+Bed.properties.find(p => p.name === 'isOccupied').defaultValue = undefined
+
+Bed.properties.find(p => p.name === 'isOccupied').computation = Custom.create({
+  name: 'BedOccupancyChecker',
+  dataDeps: {
+    currentBed: {
+      type: 'property',
+      attributeQuery: [
+        'id',
+        ['occupant', { attributeQuery: ['id'] }]  // Access related User through UserBedRelation
+      ]
+    }
+  },
+  compute: async function(dataDeps, record) {
+    // Check if the bed has an occupant (UserBedRelation exists)
+    // If occupant exists, the bed is occupied
+    return dataDeps.currentBed?.occupant !== undefined && dataDeps.currentBed?.occupant !== null
+  },
+  getDefaultValue: function() {
+    return false  // Bed is not occupied by default
+  }
+})
+
+// Property: Dormitory.occupiedBeds - Count computation to count occupied beds
+// Remove the defaultValue from the property since we're adding computation
+Dormitory.properties.find(p => p.name === 'occupiedBeds').defaultValue = undefined
+
+Dormitory.properties.find(p => p.name === 'occupiedBeds').computation = Count.create({
+  property: 'beds',  // Use property name from DormitoryBedsRelation
+  attributeQuery: ['isOccupied'],  // Query the isOccupied property on related Bed entities
+  callback: function(bed) {
+    // Count only beds where isOccupied is true
+    return bed.isOccupied === true
+  }
+})
+
+// Property: RemovalRequest.status - StateMachine computation for status transitions
+// Remove the defaultValue from the property since we're adding computation  
+RemovalRequest.properties.find(p => p.name === 'status').defaultValue = undefined
+
+const removalRequestStatusState = StateNode.create({
+  name: 'status',
+  computeValue: (lastValue, event) => {
+    // For ProcessRemovalRequest, set status based on decision
+    if (event?.interactionName === 'ProcessRemovalRequest') {
+      const decision = event.payload.decision
+      if (decision === 'approve' || decision === 'approved') {
+        return 'approved'
+      } else if (decision === 'reject' || decision === 'rejected') {
+        return 'rejected'
+      }
+    }
+    // Preserve existing value (set to 'pending' by SubmitRemovalRequest in entity computation)
+    return lastValue || 'pending'
+  }
+})
+
+RemovalRequest.properties.find(p => p.name === 'status').computation = StateMachine.create({
+  states: [removalRequestStatusState],
+  transfers: [
+    StateTransfer.create({
+      trigger: ProcessRemovalRequest,
+      current: removalRequestStatusState,
+      next: removalRequestStatusState,
       computeTarget: (event) => ({ id: event.payload.requestId })
     })
-  ]
+  ],
+  defaultState: removalRequestStatusState
 })
 
-// Apply computation to EvictionRequest.adminComment property
-EvictionRequest.properties.find(p => p.name === 'adminComment').computation = EvictionRequestAdminCommentStateMachine
-
-// === DormitoryDormHeadRelation Transform ===
-// Creates DormitoryDormHeadRelation when a user is appointed as dormitory head
-DormitoryDormHeadRelation.computation = Transform.create({
-  record: InteractionEventEntity,
-  attributeQuery: ['interactionName', 'payload'],
-  callback: function(event) {
-    if (event.interactionName === 'AppointDormHead') {
-      return {
-        source: { id: event.payload.dormitoryId },
-        target: { id: event.payload.userId }
-      }
+// Property: RemovalRequest.processedAt - StateMachine computation for timestamp when processed
+const removalRequestProcessedAtState = StateNode.create({
+  name: 'processedAt',
+  computeValue: (lastValue, event) => {
+    // For ProcessRemovalRequest, set current timestamp
+    if (event?.interactionName === 'ProcessRemovalRequest') {
+      return Math.floor(Date.now() / 1000)
     }
-    return null
+    // Preserve existing value (initially null)
+    return lastValue || null
   }
 })
 
-// === EvictionRequestApproverRelation Transform ===
-// Creates relation between eviction request and approver (admin who approved/rejected)
-EvictionRequestApproverRelation.computation = Transform.create({
-  record: InteractionEventEntity,
-  attributeQuery: ['interactionName', 'payload', 'user'],
-  callback: function(event) {
-    if (event.interactionName === 'ApproveEviction' || 
-        event.interactionName === 'RejectEviction') {
-      return {
-        evictionRequest: { id: event.payload.requestId },
-        approver: { id: event.user.id }
-      }
+RemovalRequest.properties.find(p => p.name === 'processedAt').computation = StateMachine.create({
+  states: [removalRequestProcessedAtState],
+  transfers: [
+    StateTransfer.create({
+      trigger: ProcessRemovalRequest,
+      current: removalRequestProcessedAtState,
+      next: removalRequestProcessedAtState,
+      computeTarget: (event) => ({ id: event.payload.requestId })
+    })
+  ],
+  defaultState: removalRequestProcessedAtState
+})
+
+// Property: RemovalRequest.adminComment - StateMachine computation for admin comments
+const removalRequestAdminCommentState = StateNode.create({
+  name: 'adminComment',
+  computeValue: (lastValue, event) => {
+    // For ProcessRemovalRequest, set admin comment from payload
+    if (event?.interactionName === 'ProcessRemovalRequest') {
+      return event.payload.adminComment || null
     }
-    return null
+    // Preserve existing value (initially null)
+    return lastValue || null
   }
 })
 
-// ================== PERMISSIONS AND BUSINESS RULES ==================
-// All conditions are added via assignment pattern below
-
-// === Phase 1: Basic Role-Based Permissions ===
-
-// P001: Only admin can create dormitories
-const isAdminForCreateDormitory = Condition.create({
-  name: 'isAdminForCreateDormitory',
-  content: function(this: Controller, event: any) {
-    return event.user.role === 'admin'
-  }
-})
-CreateDormitory.conditions = isAdminForCreateDormitory
-
-// P002: Only admin can assign users to dormitories
-const isAdminForAssignUser = Condition.create({
-  name: 'isAdminForAssignUser',
-  content: function(this: Controller, event: any) {
-    return event.user.role === 'admin'
-  }
-})
-AssignUserToDormitory.conditions = isAdminForAssignUser
-
-// P003: Only admin can appoint dormitory heads
-const isAdminForAppointDormHead = Condition.create({
-  name: 'isAdminForAppointDormHead',
-  content: function(this: Controller, event: any) {
-    return event.user.role === 'admin'
-  }
-})
-AppointDormHead.conditions = isAdminForAppointDormHead
-
-// P004: Only dormHead can request evictions
-const isDormHeadForRequestEviction = Condition.create({
-  name: 'isDormHeadForRequestEviction',
-  content: function(this: Controller, event: any) {
-    return event.user.role === 'dormHead'
-  }
-})
-RequestEviction.conditions = isDormHeadForRequestEviction
-
-// P005: Only admin can approve evictions
-const isAdminForApproveEviction = Condition.create({
-  name: 'isAdminForApproveEviction',
-  content: function(this: Controller, event: any) {
-    return event.user.role === 'admin'
-  }
-})
-ApproveEviction.conditions = isAdminForApproveEviction
-
-// P006: Only admin can reject evictions
-const isAdminForRejectEviction = Condition.create({
-  name: 'isAdminForRejectEviction',
-  content: function(this: Controller, event: any) {
-    return event.user.role === 'admin'
-  }
-})
-RejectEviction.conditions = isAdminForRejectEviction
-
-// P007: Only admin can view all dormitories
-const isAdminForViewAllDormitories = Condition.create({
-  name: 'isAdminForViewAllDormitories',
-  content: function(this: Controller, event: any) {
-    return event.user.role === 'admin'
-  }
-})
-ViewAllDormitories.conditions = isAdminForViewAllDormitories
-
-// === Phase 2: Simple Payload Validations ===
-
-// BR001: Dormitory capacity must be between 4-6
-const hasValidCapacity = Condition.create({
-  name: 'hasValidCapacity',
-  content: function(this: Controller, event: any) {
-    const capacity = event.payload.capacity
-    return capacity >= 4 && capacity <= 6
-  }
+RemovalRequest.properties.find(p => p.name === 'adminComment').computation = StateMachine.create({
+  states: [removalRequestAdminCommentState],
+  transfers: [
+    StateTransfer.create({
+      trigger: ProcessRemovalRequest,
+      current: removalRequestAdminCommentState,
+      next: removalRequestAdminCommentState,
+      computeTarget: (event) => ({ id: event.payload.requestId })
+    })
+  ],
+  defaultState: removalRequestAdminCommentState
 })
 
-// Combine P001 (admin permission) with BR001 (capacity validation) for CreateDormitory
-CreateDormitory.conditions = Conditions.create({
-  content: BoolExp.atom(isAdminForCreateDormitory).and(hasValidCapacity)
-})
-
-// BR002: Points must be positive number
-const hasPositivePoints = Condition.create({
-  name: 'hasPositivePoints',
-  content: function(this: Controller, event: any) {
-    return event.payload.points > 0
-  }
-})
-
-// RecordPointDeduction only has BR002 for now (P008 will be added in Phase 3)
-RecordPointDeduction.conditions = hasPositivePoints
-
-// === Phase 3: Complex Permissions with Data Queries ===
-
-// P008: RecordPointDeduction permission
-// Admin can deduct from any user, DormHead can only deduct from users in their dormitory
-const canDeductPoints = Condition.create({
-  name: 'canDeductPoints',
-  content: async function(this: Controller, event: any) {
-    // Admin can deduct from anyone
-    if (event.user.role === 'admin') {
-      return true
-    }
-    
-    // DormHead can only deduct from users in their dormitory
-    if (event.user.role === 'dormHead') {
-      // Find the dormitory managed by this dormHead
-      // DormitoryDormHeadRelation is stored in Dormitory entity
-      // First, find all dormitories to see their structure
-      const allDorms = await this.system.storage.find(
-        'Dormitory',
-        undefined,
-        undefined,
-        ['id', 'name', ['dormHead', { attributeQuery: ['id'] }]]
-      )
-      
-      // Find the dormitory where this user is the dormHead
-      const managedDormitory = allDorms.find(d => d.dormHead?.id === event.user.id)
-      
-      if (!managedDormitory) {
-        return false // DormHead doesn't manage any dormitory
-      }
-      
-      // Check if target user is in the managed dormitory
-      // UserDormitoryRelation is stored in User entity
-      const targetUser = await this.system.storage.findOne(
-        'User',
-        MatchExp.atom({ key: 'id', value: ['=', event.payload.targetUserId] }),
-        undefined,
-        ['id', ['dormitory', { attributeQuery: ['id'] }]]
-      )
-      
-      return targetUser && targetUser.dormitory?.id === managedDormitory.id
-    }
-    
-    // Regular users cannot deduct points
-    return false
-  }
-})
-
-// Combine BR002 (positive points) with P008 (permission check) for RecordPointDeduction
-RecordPointDeduction.conditions = Conditions.create({
-  content: BoolExp.atom(hasPositivePoints).and(canDeductPoints)
-})
-
-// P009: ViewDormitoryMembers permission
-// Users can view their own dormitory, DormHeads their managed dormitory, Admins any
-const canViewDormitoryMembers = Condition.create({
-  name: 'canViewDormitoryMembers',
-  content: async function(this: Controller, event: any) {
-    const requestedDormitoryId = event.payload.dormitoryId
-    
-    // Admin can view any dormitory
-    if (event.user.role === 'admin') {
-      return true
-    }
-    
-    // Check if user is viewing their own dormitory
-    // UserDormitoryRelation is stored in User entity
-    const currentUser = await this.system.storage.findOne(
-      'User',
-      MatchExp.atom({ key: 'id', value: ['=', event.user.id] }),
-      undefined,
-      ['id', ['dormitory', { attributeQuery: ['id'] }]]
-    )
-    
-    if (currentUser && currentUser.dormitory?.id === requestedDormitoryId) {
-      return true // User can view their own dormitory
-    }
-    
-    // Check if user is a dormHead viewing their managed dormitory
-    if (event.user.role === 'dormHead') {
-      // DormitoryDormHeadRelation is stored in Dormitory entity
-      const requestedDorm = await this.system.storage.findOne(
-        'Dormitory',
-        MatchExp.atom({ key: 'id', value: ['=', requestedDormitoryId] }),
-        undefined,
-        ['id', ['dormHead', { attributeQuery: ['id'] }]]
-      )
-      
-      if (requestedDorm && requestedDorm.dormHead?.id === event.user.id) {
-        return true // DormHead can view their managed dormitory
-      }
-    }
-    
-    return false // User cannot view this dormitory
-  }
-})
-
-ViewDormitoryMembers.conditions = canViewDormitoryMembers
-
-// === Phase 4: Business Rules with Entity State Checks ===
-
-// BR003: AssignUserToDormitory - User must not already have a dormitory assignment
-const userHasNoDormitory = Condition.create({
-  name: 'userHasNoDormitory',
-  content: async function(this: Controller, event: any) {
-    // Check if user already has a dormitory assignment
-    const user = await this.system.storage.findOne(
-      'User',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.userId] }),
-      undefined,
-      ['id', ['dormitory', { attributeQuery: ['id'] }]]
-    )
-    
-    // Return true if user exists but has no dormitory
-    return user && !user.dormitory
-  }
-})
-
-// BR004: AssignUserToDormitory - Bed must be vacant
-const bedIsVacant = Condition.create({
-  name: 'bedIsVacant',
-  content: async function(this: Controller, event: any) {
-    const bed = await this.system.storage.findOne(
-      'Bed',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.bedId] }),
-      undefined,
-      ['id', 'status']
-    )
-    
-    return bed && bed.status === 'vacant'
-  }
-})
-
-// BR005: AssignUserToDormitory - Bed must belong to specified dormitory
-const bedBelongsToDormitory = Condition.create({
-  name: 'bedBelongsToDormitory',
-  content: async function(this: Controller, event: any) {
-    const bed = await this.system.storage.findOne(
-      'Bed',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.bedId] }),
-      undefined,
-      ['id', ['dormitory', { attributeQuery: ['id'] }]]
-    )
-    
-    return bed && bed.dormitory?.id === event.payload.dormitoryId
-  }
-})
-
-// Update AssignUserToDormitory conditions to include all business rules
-// Combine P002 (admin permission) with BR003, BR004, BR005
-AssignUserToDormitory.conditions = Conditions.create({
-  content: BoolExp.atom(isAdminForAssignUser)
-    .and(userHasNoDormitory)
-    .and(bedIsVacant)
-    .and(bedBelongsToDormitory)
-})
-
-// BR006: AppointDormHead - User must be a member of the target dormitory
-const userInTargetDormitory = Condition.create({
-  name: 'userInTargetDormitory',
-  content: async function(this: Controller, event: any) {
-    const user = await this.system.storage.findOne(
-      'User',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.userId] }),
-      undefined,
-      ['id', ['dormitory', { attributeQuery: ['id'] }]]
-    )
-    
-    return user && user.dormitory?.id === event.payload.dormitoryId
-  }
-})
-
-// BR007: AppointDormHead - Dormitory should not already have a head
-const dormitoryHasNoHead = Condition.create({
-  name: 'dormitoryHasNoHead',
-  content: async function(this: Controller, event: any) {
-    const dormitory = await this.system.storage.findOne(
-      'Dormitory',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.dormitoryId] }),
-      undefined,
-      ['id', ['dormHead', { attributeQuery: ['id'] }]]
-    )
-    
-    return dormitory && !dormitory.dormHead
-  }
-})
-
-// Update AppointDormHead conditions to include business rules
-// Combine P003 (admin permission) with BR006, BR007
-AppointDormHead.conditions = Conditions.create({
-  content: BoolExp.atom(isAdminForAppointDormHead)
-    .and(userInTargetDormitory)
-    .and(dormitoryHasNoHead)
-})
-
-// BR008: RequestEviction - Target user must be in requester's dormitory
-const targetUserInRequesterDormitory = Condition.create({
-  name: 'targetUserInRequesterDormitory',
-  content: async function(this: Controller, event: any) {
-    // Find the dormitory managed by the requester (dormHead)
-    const allDorms = await this.system.storage.find(
-      'Dormitory',
-      undefined,
-      undefined,
-      ['id', ['dormHead', { attributeQuery: ['id'] }]]
-    )
-    
-    const managedDormitory = allDorms.find(d => d.dormHead?.id === event.user.id)
-    
-    if (!managedDormitory) {
-      return false // Requester doesn't manage any dormitory
-    }
-    
-    // Check if target user is in the managed dormitory
-    const targetUser = await this.system.storage.findOne(
-      'User',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.targetUserId] }),
-      undefined,
-      ['id', ['dormitory', { attributeQuery: ['id'] }]]
-    )
-    
-    return targetUser && targetUser.dormitory?.id === managedDormitory.id
-  }
-})
-
-// BR009: RequestEviction - Target user points must be below 30
-const targetUserPointsBelow30 = Condition.create({
-  name: 'targetUserPointsBelow30',
-  content: async function(this: Controller, event: any) {
-    const targetUser = await this.system.storage.findOne(
-      'User',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.targetUserId] }),
-      undefined,
-      ['id', 'points']
-    )
-    
-    return targetUser && targetUser.points < 30
-  }
-})
-
-// BR010: RequestEviction - No existing pending request for same user
-const noPendingEvictionRequest = Condition.create({
-  name: 'noPendingEvictionRequest',
-  content: async function(this: Controller, event: any) {
-    // Find all eviction requests
-    const allRequests = await this.system.storage.find(
-      'EvictionRequest',
-      undefined,
-      undefined,
-      ['id', 'status', ['targetUser', { attributeQuery: ['id'] }]]
-    )
-    
-    // Check if there's any pending request for the target user
-    const hasPendingRequest = allRequests.some(
-      req => req.status === 'pending' && req.targetUser?.id === event.payload.targetUserId
-    )
-
-    return !hasPendingRequest
-  }
-})
-
-// Update RequestEviction conditions to include all business rules
-// Combine P004 (dormHead permission) with BR008, BR009, BR010
-RequestEviction.conditions = Conditions.create({
-  content: BoolExp.atom(isDormHeadForRequestEviction)
-    .and(targetUserInRequesterDormitory)
-    .and(targetUserPointsBelow30)
-    .and(noPendingEvictionRequest)
-})
-
-// BR011: ApproveEviction - Request must be in 'pending' status
-const evictionRequestIsPending = Condition.create({
-  name: 'evictionRequestIsPending',
-  content: async function(this: Controller, event: any) {
-    const request = await this.system.storage.findOne(
-      'EvictionRequest',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.requestId] }),
-      undefined,
-      ['id', 'status']
-    )
-    
-    return request && request.status === 'pending'
-  }
-})
-
-// Update ApproveEviction conditions to include business rule
-// Combine P005 (admin permission) with BR011
-ApproveEviction.conditions = Conditions.create({
-  content: BoolExp.atom(isAdminForApproveEviction)
-    .and(evictionRequestIsPending)
-})
-
-// BR012: RejectEviction - Request must be in 'pending' status
-// Note: BR012 uses the same condition as BR011 (evictionRequestIsPending)
-
-// Update RejectEviction conditions to include business rule
-// Combine P006 (admin permission) with BR012
-RejectEviction.conditions = Conditions.create({
-  content: BoolExp.atom(isAdminForRejectEviction)
-    .and(evictionRequestIsPending)
-})
-
-// ================== Phase 5: Query Interaction Rules ==================
-
-// P010: ViewMyDormitory - Any logged-in user can view
-const userExistsForViewMyDormitory = Condition.create({
-  name: 'userExistsForViewMyDormitory',
-  content: function(this: Controller, event: any) {
-    return event.user && event.user.id
-  }
-})
-
-// BR013: ViewMyDormitory - User must have dormitory assignment
-const userHasDormitoryAssignment = Condition.create({
-  name: 'userHasDormitoryAssignment',
-  content: async function(this: Controller, event: any) {
-    // Check if user has a UserDormitoryRelation
-    const userDormRelations = await this.system.storage.find(
-      'UserDormitoryRelation',
-      MatchExp.atom({
-        key: 'source.id',
-        value: ['=', event.user.id]
-      }),
-      undefined,
-      ['id']
-    )
-    
-    return userDormRelations && userDormRelations.length > 0
-  }
-})
-
-// Combine P010 and BR013 for ViewMyDormitory
-ViewMyDormitory.conditions = Conditions.create({
-  content: BoolExp.atom(userExistsForViewMyDormitory)
-    .and(userHasDormitoryAssignment)
-})
-
-// P011: ViewMyPoints - Any logged-in user can view
-const userExistsForViewMyPoints = Condition.create({
-  name: 'userExistsForViewMyPoints',
-  content: function(this: Controller, event: any) {
-    return event.user && event.user.id
-  }
-})
-
-ViewMyPoints.conditions = userExistsForViewMyPoints
-
-// BR014: CreateDormitory - Dormitory name must be unique
-const dormitoryNameIsUnique = Condition.create({
-  name: 'dormitoryNameIsUnique',
-  content: async function(this: Controller, event: any) {
-    const existingDorm = await this.system.storage.findOne(
-      'Dormitory',
-      MatchExp.atom({ key: 'name', value: ['=', event.payload.name] }),
-      undefined,
-      ['id']
-    )
-    
-    return !existingDorm // Return true if no existing dormitory with same name
-  }
-})
-
-// Update CreateDormitory conditions to include BR014
-// CreateDormitory already has permission and capacity checks, add name uniqueness
-CreateDormitory.conditions = Conditions.create({
-  content: BoolExp.atom(isAdminForCreateDormitory)
-    .and(hasValidCapacity)
-    .and(dormitoryNameIsUnique)
-})
-
-// BR015: AssignUserToDormitory - Dormitory must not be full
-const dormitoryHasSpace = Condition.create({
-  name: 'dormitoryHasSpace',
-  content: async function(this: Controller, event: any) {
-    const dormitory = await this.system.storage.findOne(
-      'Dormitory',
-      MatchExp.atom({ key: 'id', value: ['=', event.payload.dormitoryId] }),
-      undefined,
-      ['id', 'capacity', 'occupancy']
-    )
-    
-    if (!dormitory) {
-      return false // Dormitory doesn't exist
-    }
-    
-    return dormitory.occupancy < dormitory.capacity
-  }
-})
-
-// Update AssignUserToDormitory conditions to include BR015
-// AssignUserToDormitory already has other checks, add capacity check
-AssignUserToDormitory.conditions = Conditions.create({
-  content: BoolExp.atom(isAdminForAssignUser)
-    .and(userHasNoDormitory)
-    .and(bedIsVacant)
-    .and(bedBelongsToDormitory)
-    .and(dormitoryHasSpace)
-})

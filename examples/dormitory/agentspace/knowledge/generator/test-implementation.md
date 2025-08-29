@@ -68,6 +68,108 @@ type InteractionCallResponse = {
 
 ### Common Usage Patterns
 
+#### 🔴 IMPORTANT: Accessing Created/Updated Data from Effects
+
+When calling interactions that create, update, or delete data, the `result.effects` array contains detailed information about all record mutations:
+
+```typescript
+// Example: Getting created record ID and data from effects
+test('should create a style and get the created record from effects', async () => {
+  const result = await controller.callInteraction('CreateStyle', {
+    user: adminUser,
+    payload: { label: 'Modern', slug: 'modern' }
+  })
+  
+  expect(result.error).toBeUndefined()
+  
+  // Access the created record from effects
+  const createEffect = result.effects?.find(e => 
+    e.type === 'create' && e.recordName === 'Style'
+  )
+  
+  // The created record contains all fields with their values
+  expect(createEffect).toBeDefined()
+  expect(createEffect?.record?.id).toBeDefined()  // Auto-generated ID
+  expect(createEffect?.record?.label).toBe('Modern')
+  expect(createEffect?.record?.slug).toBe('modern')
+  expect(createEffect?.record?.status).toBe('draft')  // Default value
+  
+  // You can use the ID from effects for subsequent operations
+  const styleId = createEffect?.record?.id
+})
+
+// Example: Tracking multiple mutations in one interaction
+test('should track all mutations when creating related data', async () => {
+  const result = await controller.callInteraction('CreatePostWithTags', {
+    user: authorUser,
+    payload: {
+      title: 'Test Post',
+      tags: ['tech', 'news']
+    }
+  })
+  
+  // Check all effects
+  const postCreate = result.effects?.find(e => 
+    e.type === 'create' && e.recordName === 'Post'
+  )
+  const tagCreates = result.effects?.filter(e => 
+    e.type === 'create' && e.recordName === 'Tag'
+  )
+  const relationCreates = result.effects?.filter(e => 
+    e.type === 'create' && e.recordName === 'PostTagRelation'
+  )
+  
+  expect(postCreate).toBeDefined()
+  expect(tagCreates).toHaveLength(2)
+  expect(relationCreates).toHaveLength(2)
+})
+
+// Example: Accessing old and new values in updates
+test('should track old and new values in update effects', async () => {
+  const updateResult = await controller.callInteraction('UpdateStyle', {
+    user: adminUser,
+    payload: {
+      id: existingStyle.id,
+      label: 'Updated Label',
+      status: 'active'
+    }
+  })
+  
+  const updateEffect = updateResult.effects?.find(e => 
+    e.type === 'update' && e.recordName === 'Style'
+  )
+  
+  // Access both old and new values
+  expect(updateEffect?.oldRecord?.label).toBe('Original Label')
+  expect(updateEffect?.record?.label).toBe('Updated Label')
+  expect(updateEffect?.oldRecord?.status).toBe('draft')
+  expect(updateEffect?.record?.status).toBe('active')
+})
+```
+
+**RecordMutationEvent Structure:**
+```typescript
+type RecordMutationEvent = {
+  recordName: string           // Entity/Relation name (e.g., 'Style', 'User')
+  type: 'create' | 'update' | 'delete'
+  keys?: string[]              // Updated field names (for updates)
+  record?: {                   // New/current record data
+    id: string
+    [key: string]: any
+  }
+  oldRecord?: {                // Previous record data (for updates)
+    id: string
+    [key: string]: any
+  }
+}
+```
+
+**When to Use Effects vs Storage Queries:**
+- **Use `result.effects`** when you need immediate access to the created/updated data without an additional database query
+- **Use storage APIs** when you need to verify the final state after all computations have run
+- **Effects are useful for**: Getting auto-generated IDs, tracking all mutations in complex interactions, debugging what changed
+- **Storage queries are better for**: Verifying computed properties, checking related data, confirming final state
+
 #### 🔴 IMPORTANT: Use Storage APIs for Verification
 When testing interactions, **directly use storage.find/findOne to verify results**. DO NOT create query interactions just for testing purposes:
 
@@ -265,6 +367,42 @@ This is especially useful when:
 
 The interaqt framework implements its own Error subclasses with a nested structure. Errors are wrapped layer by layer, with each layer adding context about where and why the error occurred. 
 
+## 🔴 CRITICAL: Timestamp Handling - Always Use Seconds!
+**The database does NOT support millisecond precision for timestamps**. You MUST convert to seconds:
+
+```typescript
+// ❌ WRONG: Using milliseconds directly in test data
+const testData = await system.storage.create('Post', {
+  title: 'Test',
+  createdAt: Date.now()  // ERROR! Database doesn't support milliseconds!
+})
+
+// ✅ CORRECT: Convert to seconds for all timestamps
+const testData = await system.storage.create('Post', {
+  title: 'Test',
+  createdAt: Math.floor(Date.now()/1000)  // Correct! Unix timestamp in seconds
+})
+
+// ✅ CORRECT: When verifying timestamps in tests
+test('should set correct timestamp', async () => {
+  const beforeTime = Math.floor(Date.now()/1000)
+  
+  const result = await controller.callInteraction('CreatePost', {...})
+  
+  const afterTime = Math.floor(Date.now()/1000)
+  const post = await system.storage.findOne('Post', ...)
+  
+  expect(post.createdAt).toBeGreaterThanOrEqual(beforeTime)
+  expect(post.createdAt).toBeLessThanOrEqual(afterTime)
+})
+```
+
+**Remember**: Always use `Math.floor(Date.now()/1000)` for timestamps in:
+- Test data setup
+- Timestamp verifications
+- Mock data creation
+- Any timestamp-related assertions
+
 ## 🔴 CRITICAL: User Authentication Handling
 **interaqt does NOT handle user authentication**. This is a fundamental principle:
 - The framework assumes user identity has already been authenticated through external means (JWT, Session, OAuth, etc.)
@@ -402,9 +540,9 @@ When querying relations themselves (not entities with relations), the `source` a
 **🔴 CRITICAL: source/target in Relations are Related Entities**
 
 ```typescript
-// ✅ CORRECT: Query relation by source entity's properties
+// ✅ CORRECT: Use relation instance name and query by source entity's properties
 const userPostRelations = await system.storage.find(
-  'UserPostRelation',
+  UserPostRelation.name,  // Use relation instance's name property
   MatchExp.atom({ key: 'source.id', value: ['=', userId] }),  // Use dot notation for source
   undefined,
   [
@@ -415,9 +553,9 @@ const userPostRelations = await system.storage.find(
   ]
 )
 
-// ✅ CORRECT: Query by target entity's properties
+// ✅ CORRECT: Use relation instance name and query by target entity's properties
 const postAuthorRelation = await system.storage.findOneRelationByName(
-  'PostAuthorRelation',
+  PostAuthorRelation.name,  // Use relation instance's name property
   MatchExp.atom({ key: 'target.status', value: ['=', 'published'] }),  // Query by target's field
   undefined,
   [
@@ -429,7 +567,7 @@ const postAuthorRelation = await system.storage.findOneRelationByName(
 
 // ✅ CORRECT: Complex query with both source and target conditions
 const activeUserPublishedPostRelations = await system.storage.findRelationByName(
-  'UserPostRelation',
+  UserPostRelation.name,  // Use relation instance's name property
   MatchExp.atom({ key: 'source.status', value: ['=', 'active'] })
     .and({ key: 'target.publishedAt', value: ['not', null] }),
   { limit: 10 },
@@ -441,17 +579,17 @@ const activeUserPublishedPostRelations = await system.storage.findRelationByName
   ]
 )
 
-// ❌ WRONG: Don't compare source/target directly
+// ❌ WRONG: Don't hardcode relation names or compare source/target directly
 const relations = await system.storage.findRelationByName(
-  'UserPostRelation',
+  'UserPostRelation',  // WRONG! Don't hardcode, use UserPostRelation.name
   MatchExp.atom({ key: 'source', value: ['=', userId] }),  // WRONG! Can't compare entity object
   undefined,
   ['id', 'source', 'target']  // WRONG! Missing nested attributeQuery
 )
 
-// ❌ WRONG: Don't forget nested attributeQuery for source/target
+// ❌ WRONG: Don't hardcode names and don't forget nested attributeQuery for source/target
 const relations = await system.storage.findRelationByName(
-  'UserPostRelation',
+  'UserPostRelation',  // WRONG! Use UserPostRelation.name instead
   MatchExp.atom({ key: 'source.id', value: ['=', userId] }),
   undefined,
   ['id', 'source', 'target']  // WRONG! This won't fetch entity data
