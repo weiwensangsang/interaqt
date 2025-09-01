@@ -133,7 +133,7 @@ export function registerAPI(name: string, api: DataAPI) {
   dataAPIs[name] = api;
 }
 
-async function createController(env: { DB: any }) {
+async function createController(env: any) {
   const db = new CloudflareD1DB(env.DB);
   const controller = new Controller({
     system: new MonoSystem(db),
@@ -170,7 +170,7 @@ function withLogContext(
 }
 
 export default {
-  async fetch(request: Request, env: { DB: any }): Promise<Response> {
+  async fetch(request: Request, env: any): Promise<Response> {
     const { pathname } = new URL(request.url);
     const { method, headers } = request;
 
@@ -250,6 +250,58 @@ export default {
 
         const result = await handler(request, controller);
         return Response.json(result, { headers: CORS });
+      }
+      
+      if (pathname === "/api/image/upload" && method === "POST") {
+        if (!env.ACCOUNT_ID || !env.UPLOAD_IMAGE_TOKEN || !env.IMAGE_WORKER || !env.ACCOUNT_HASH) {
+          throw { statusCode: 500 };
+        }
+        
+        const file = (await request.formData()).get("file") as File;
+        if (!file || !file.type.match(/^image\//) || file.size > 10 * 1024 * 1024) {
+          throw { statusCode: 400 };
+        }
+        
+        const formData = new FormData(); 
+        formData.append('id', `uploads/${env.IMAGE_WORKER}/${file.name}`);
+        formData.append('creator', env.IMAGE_WORKER);
+        
+        const directUpload = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/images/v2/direct_upload`,
+          { 
+            method: 'POST', 
+            headers: { 'Authorization': `Bearer ${env.UPLOAD_IMAGE_TOKEN}` }, 
+            body: formData 
+          }
+        ).then(r => r.json());
+        
+        if (!directUpload.result?.uploadURL) throw { statusCode: 500 };
+        
+        const uploadData = new FormData();
+        uploadData.append('file', file);
+        await fetch(directUpload.result.uploadURL, { method: 'POST', body: uploadData });
+        
+        return Response.json({ id: directUpload.result.id }, { headers: CORS });
+      }
+
+      if (pathname.startsWith("/api/image/") && method === "GET") {
+        const imageId = pathname.slice(11);
+        const url = new URL(request.url);
+        const imageOptions: any = {};
+        
+        ['fit', 'width', 'height', 'quality'].forEach(param => {
+          const value = url.searchParams.get(param);
+          if (value) imageOptions[param] = value;
+        });
+        
+        const accept = request.headers.get("Accept");
+        if (accept?.includes("avif")) imageOptions.format = "avif";
+        else if (accept?.includes("webp")) imageOptions.format = "webp";
+        
+        return fetch(
+          `https://imagedelivery.net/${env.ACCOUNT_HASH}/${imageId}/public`, 
+          { cf: { image: imageOptions } } as any
+        );
       }
 
       // Data API 处理
