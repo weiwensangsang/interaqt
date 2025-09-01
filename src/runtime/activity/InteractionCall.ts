@@ -412,7 +412,6 @@ export class InteractionCall {
             }
 
             const result =  await conditions.evaluateAsync(handleAttribute)
-
             if (result !== true ) {
                 throw ConditionError.conditionCheckFailed(result)
             }
